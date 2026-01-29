@@ -1,56 +1,55 @@
 from __future__ import annotations
 
-import asyncio
-import time
+import logging
 from typing import Any, Dict
 
 from app.services.execution_service import execution_queue
-from app.db.executions_repo import update_execution_status
+from app.workers.python_worker import run_python_job
+
+logger = logging.getLogger(__name__)
 
 
 async def worker_loop() -> None:
+    logger.info("Worker loop started")
+
     while True:
         job: Dict[str, Any] = await execution_queue.get()
-        execution_id: str = job["execution_id"]
-
-        start_time = time.perf_counter()
+        execution_id = job.get("execution_id")
 
         try:
-            # Mark as running
-            update_execution_status(
-                execution_id=execution_id,
-                status="running",
-                started=True,
-            )
+            payload = job["payload"]
+            lang = payload["config"]["action"]["language"]
 
-            # Placeholder: later dispatch to python_worker/node_worker
-            await asyncio.sleep(0.01)
-
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-
-            update_execution_status(
-                execution_id=execution_id,
-                status="executed",
-                finished=True,
-                ok=True,
-                result={
-                    "ok": True,
-                    "output": {},
+            logger.info(
+                "Dequeued execution job",
+                extra={
+                    "execution_id": str(execution_id),
+                    "language": lang,
                 },
-                duration_ms=elapsed_ms,
             )
 
-        except Exception as e:
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+            if lang == "python":
+                await run_python_job(execution_id, payload)
+            else:
+                raise RuntimeError(f"Unsupported language: {lang}")
 
-            update_execution_status(
-                execution_id=execution_id,
-                status="failed",
-                finished=True,
-                ok=False,
-                error_message=str(e),
-                duration_ms=elapsed_ms,
+            logger.info(
+                "Execution job finished",
+                extra={
+                    "execution_id": str(execution_id),
+                    "language": lang,
+                },
             )
+
+        except Exception:
+            logger.exception(
+                "Execution job failed in worker loop",
+                extra={
+                    "execution_id": str(execution_id),
+                },
+            )
+            # Let the worker-level failure semantics apply
+            # (status update happens inside the language worker)
 
         finally:
             execution_queue.task_done()
