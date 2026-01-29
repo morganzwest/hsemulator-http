@@ -1,0 +1,16 @@
+[project]
+name = "hsemulator-api"
+version = "0.1.0"
+description = "HS Emulator Runtime API"
+requires-python = ">=3.11"
+
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic",
+  "python-dotenv",
+  "supabase"
+]
+
+[tool.uvicorn]
+factory = false
