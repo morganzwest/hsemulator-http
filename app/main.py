@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from fastapi import FastAPI, Depends
+from uuid import UUID
 
 from app.config import settings
 from app.models import HealthResponse, ExecuteRequest, ExecuteAcceptedResponse
@@ -11,6 +12,9 @@ from app.workers.base import worker_loop
 import logging
 from app.logging import ExecutionContextFilter
 from app.auth import require_runtime_token
+from app.models.secrets import CreateSecretRequest, CreateSecretResponse
+from app.services.secret_service import create_secret
+from app.services.secret_decrypt_service import decrypt_secret_for_test
 
 handler = logging.StreamHandler()
 handler.setFormatter(
@@ -64,3 +68,37 @@ async def execute(req: ExecuteRequest):
         execution_id=req.execution_id,
         status="queued",
     )
+
+
+@app.post(
+    "/secrets",
+    response_model=CreateSecretResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+def create_secret_endpoint(req: CreateSecretRequest):
+    secret_id = create_secret(
+        scope=req.scope,
+        portal_id=req.portal_id,
+        action_id=req.action_id,
+        name=req.name,
+        value=req.value,
+        created_by=req.created_by,
+    )
+
+    return CreateSecretResponse(
+        ok=True,
+        secret_id=secret_id,
+    )
+
+
+@app.get(
+    "/test-decrypt/{secret_id}",
+    dependencies=[Depends(require_runtime_token)],
+)
+def test_decrypt_secret(secret_id: UUID):
+    """
+    TEST ONLY.
+    Returns decrypted secret material.
+    REMOVE OR FEATURE-FLAG BEFORE PRODUCTION.
+    """
+    return decrypt_secret_for_test(secret_id)
