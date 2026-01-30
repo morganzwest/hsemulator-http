@@ -27,6 +27,21 @@ SAFE_BASE_ENV = {
     "PYTHONDONTWRITEBYTECODE": "1",
 }
 
+
+class PlatformExecutionError(RuntimeError):
+    """
+    Raised when the execution platform itself fails
+    (shim bug, infra issue, unexpected state).
+    """
+
+
+PLATFORM_ERROR_TYPE = "PlatformError"
+PLATFORM_ERROR_MESSAGE = (
+    "Execution failed due to an internal runtime error. "
+    "Please retry or contact support."
+)
+
+
 # -----------------------------
 # Safety: env isolation + denylist
 # -----------------------------
@@ -52,6 +67,32 @@ FORBIDDEN_ENV_KEYS = {
     "REQUESTS_CA_BUNDLE",
     "SSL_CERT_FILE",
 }
+
+
+class Redactor:
+    def __init__(self, secrets: dict[str, str]):
+        # Only redact non-empty values
+        self._values = [
+            v for v in secrets.values()
+            if isinstance(v, str) and v
+        ]
+
+    def redact(self, text: str) -> str:
+        redacted = text
+        for value in self._values:
+            if value in redacted:
+                redacted = redacted.replace(value, "***")
+        return redacted
+
+
+def redact_obj(obj: Any, redactor: Redactor) -> Any:
+    if isinstance(obj, str):
+        return redactor.redact(obj)
+    if isinstance(obj, list):
+        return [redact_obj(v, redactor) for v in obj]
+    if isinstance(obj, dict):
+        return {k: redact_obj(v, redactor) for k, v in obj.items()}
+    return obj
 
 
 def validate_user_env(user_env: dict[str, str]) -> dict[str, str]:
@@ -141,10 +182,6 @@ class PythonShim:
         event_source: str,
         env: Dict[str, str] | None = None,
     ) -> list[ExecutionEvent]:
-        """
-        Runs the user action in a subprocess.
-        Returns the list of emitted events (in case you want to store them).
-        """
         emitted: list[ExecutionEvent] = []
 
         def capture(event: ExecutionEvent) -> None:
@@ -153,152 +190,173 @@ class PythonShim:
 
         start = time.perf_counter()
 
-        # Validate env early, fail before subprocess if unsafe
         try:
-            safe_user_env = validate_user_env(env or {})
-        except Exception as e:
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            capture(
-                ExecutionFailed(
-                    execution_id=execution_id,
-                    ts=_iso_now(),
-                    seq=self._next_seq(),
-                    type="execution.failed",
-                    error_type="EnvValidationError",
-                    message=str(e),
-                    exit_code=None,
-                    duration_ms=duration_ms,
-                    meta={},
-                )
-            )
-            return emitted
-
-        # Temp workspace for isolated execution
-        with tempfile.TemporaryDirectory(prefix="hsemulate_py_") as td:
-            workdir = Path(td)
-
-            action_path = workdir / entry
-            event_path = workdir / "event.json"
-            result_path = workdir / "__result.json"
-            error_path = workdir / "__error.json"
-            runner_path = workdir / "__runner.py"
-
-            action_path.write_text(action_source, encoding="utf-8")
-            event_path.write_text(event_source, encoding="utf-8")
-
-            runner_path.write_text(
-                _runner_source(
-                    entry_filename=entry,
-                    allow_imports=self.allow_imports,
-                ),
-                encoding="utf-8",
-            )
-
-            capture(
-                ExecutionStarted(
-                    execution_id=execution_id,
-                    ts=_iso_now(),
-                    seq=self._next_seq(),
-                    type="execution.started",
-                    meta={
-                        "entry": entry,
-                        "timeout_s": self.timeout_s,
-                        "allow_imports": self.allow_imports,
-                        "python": sys.version,
-                    },
-                )
-            )
-
-            # Add internal shim variables to the isolated env
-            safe_user_env["HSEMULATE_EVENT_PATH"] = str(event_path)
-            safe_user_env["HSEMULATE_RESULT_PATH"] = str(result_path)
-            safe_user_env["HSEMULATE_ERROR_PATH"] = str(error_path)
-            safe_user_env["HSEMULATE_ENTRY"] = entry
-
-            # Use -u for unbuffered output, -I for isolated mode (no user site, ignores env usercustomize)
-            python_exe = sys.executable
-
-            proc = await asyncio.create_subprocess_exec(
-                python_exe,
-                "-I",
-                "-u",
-                str(runner_path),
-                cwd=str(workdir),
-                env=build_subprocess_env(safe_user_env),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            async def read_stream(stream, is_stdout: bool):
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    text = line.decode("utf-8", errors="replace").rstrip("\n")
-                    if is_stdout:
-                        capture(
-                            StdoutEmitted(
-                                execution_id=execution_id,
-                                ts=_iso_now(),
-                                seq=self._next_seq(),
-                                type="stdout",
-                                line=text,
-                            )
-                        )
-                    else:
-                        capture(
-                            StderrEmitted(
-                                execution_id=execution_id,
-                                ts=_iso_now(),
-                                seq=self._next_seq(),
-                                type="stderr",
-                                line=text,
-                            )
-                        )
-
-            stdout_task = asyncio.create_task(read_stream(proc.stdout, True))
-            stderr_task = asyncio.create_task(read_stream(proc.stderr, False))
-
-            timed_out = False
+            # 1) Env validation: user error is safe to show
             try:
-                await asyncio.wait_for(proc.wait(), timeout=self.timeout_s)
-            except asyncio.TimeoutError:
-                timed_out = True
-                proc.kill()
-                await proc.wait()
-            finally:
-                await asyncio.gather(stdout_task, stderr_task)
-
-            duration_ms = int((time.perf_counter() - start) * 1000)
-
-            if timed_out:
+                safe_user_env = validate_user_env(env or {})
+                redactor = Redactor(safe_user_env)
+            except ValueError as e:
                 capture(
-                    ExecutionTimedOut(
+                    ExecutionFailed(
                         execution_id=execution_id,
                         ts=_iso_now(),
                         seq=self._next_seq(),
-                        type="execution.timed_out",
-                        timeout_s=self.timeout_s,
-                        duration_ms=duration_ms,
+                        type="execution.failed",
+                        error_type="EnvValidationError",
+                        message=str(e),
+                        exit_code=None,
+                        duration_ms=int((time.perf_counter() - start) * 1000),
                         meta={},
                     )
                 )
                 return emitted
+            except Exception as e:
+                # Unexpected env validation failure -> platform
+                raise PlatformExecutionError() from e
 
-            exit_code = proc.returncode or 0
+            # 2) Temp workspace MUST include the entire subprocess lifetime
+            with tempfile.TemporaryDirectory(prefix="hsemulate_py_") as td:
+                workdir = Path(td)
 
-            # Read structured result or structured error produced by runner.
-            if result_path.exists():
+                action_path = workdir / entry
+                event_path = workdir / "event.json"
+                result_path = workdir / "__result.json"
+                error_path = workdir / "__error.json"
+                runner_path = workdir / "__runner.py"
+
                 try:
-                    result_obj = json.loads(
-                        result_path.read_text(encoding="utf-8"))
+                    action_path.write_text(action_source, encoding="utf-8")
+                    event_path.write_text(event_source, encoding="utf-8")
+                    runner_path.write_text(
+                        _runner_source(
+                            entry_filename=entry,
+                            allow_imports=self.allow_imports,
+                        ),
+                        encoding="utf-8",
+                    )
+                except Exception as e:
+                    raise PlatformExecutionError() from e
+
+                capture(
+                    ExecutionStarted(
+                        execution_id=execution_id,
+                        ts=_iso_now(),
+                        seq=self._next_seq(),
+                        type="execution.started",
+                        meta={
+                            "entry": entry,
+                            "timeout_s": self.timeout_s,
+                            "allow_imports": self.allow_imports,
+                            "python": sys.version,
+                        },
+                    )
+                )
+
+                # Add shim vars
+                safe_user_env["HSEMULATE_EVENT_PATH"] = str(event_path)
+                safe_user_env["HSEMULATE_RESULT_PATH"] = str(result_path)
+                safe_user_env["HSEMULATE_ERROR_PATH"] = str(error_path)
+                safe_user_env["HSEMULATE_ENTRY"] = entry
+
+                python_exe = sys.executable
+
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        python_exe,
+                        "-I",
+                        "-u",
+                        str(runner_path),
+                        cwd=str(workdir),
+                        env=build_subprocess_env(safe_user_env),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                except Exception as e:
+                    # Spawn failures are platform errors
+                    raise PlatformExecutionError() from e
+
+                async def read_stream(stream, is_stdout: bool):
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        text = line.decode(
+                            "utf-8", errors="replace").rstrip("\n")
+                        text = redactor.redact(text)
+
+                        capture(
+                            (StdoutEmitted if is_stdout else StderrEmitted)(
+                                execution_id=execution_id,
+                                ts=_iso_now(),
+                                seq=self._next_seq(),
+                                type="stdout" if is_stdout else "stderr",
+                                line=text,
+                            )
+                        )
+
+                stdout_task = asyncio.create_task(
+                    read_stream(proc.stdout, True))
+                stderr_task = asyncio.create_task(
+                    read_stream(proc.stderr, False))
+
+                timed_out = False
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=self.timeout_s)
+                except asyncio.TimeoutError:
+                    timed_out = True
+                    proc.kill()
+                    await proc.wait()
+                finally:
+                    await asyncio.gather(stdout_task, stderr_task)
+
+                duration_ms = int((time.perf_counter() - start) * 1000)
+
+                if timed_out:
+                    capture(
+                        ExecutionTimedOut(
+                            execution_id=execution_id,
+                            ts=_iso_now(),
+                            seq=self._next_seq(),
+                            type="execution.timed_out",
+                            timeout_s=self.timeout_s,
+                            duration_ms=duration_ms,
+                            meta={},
+                        )
+                    )
+                    return emitted
+
+                exit_code = proc.returncode or 0
+
+                # 3) Runner-produced errors/results are user-facing (still redact output)
+                if result_path.exists():
+                    try:
+                        result_obj = json.loads(
+                            result_path.read_text(encoding="utf-8"))
+                        safe_result = redact_obj(result_obj, redactor)
+                    except Exception as e:
+                        # Platform cannot parse result file -> platform error (or ResultParseError if you want)
+                        capture(
+                            ExecutionFailed(
+                                execution_id=execution_id,
+                                ts=_iso_now(),
+                                seq=self._next_seq(),
+                                type="execution.failed",
+                                error_type="ResultParseError",
+                                message=str(e),
+                                exit_code=exit_code,
+                                duration_ms=duration_ms,
+                                meta={},
+                            )
+                        )
+                        return emitted
+
                     capture(
                         ReturnValue(
                             execution_id=execution_id,
                             ts=_iso_now(),
                             seq=self._next_seq(),
                             type="execution.return",
-                            value=result_obj,
+                            value=safe_result,
                         )
                     )
                     capture(
@@ -313,27 +371,31 @@ class PythonShim:
                         )
                     )
                     return emitted
-                except Exception as e:
-                    # If runner wrote result but we cannot parse, fail
-                    capture(
-                        ExecutionFailed(
-                            execution_id=execution_id,
-                            ts=_iso_now(),
-                            seq=self._next_seq(),
-                            type="execution.failed",
-                            error_type="ResultParseError",
-                            message=str(e),
-                            exit_code=exit_code,
-                            duration_ms=duration_ms,
-                            meta={},
-                        )
-                    )
-                    return emitted
 
-            # If no result, check error file
-            if error_path.exists():
-                try:
-                    err = json.loads(error_path.read_text(encoding="utf-8"))
+                if error_path.exists():
+                    # This file is authored by the runner; safe to surface (it is user code / user payload errors)
+                    try:
+                        err = json.loads(
+                            error_path.read_text(encoding="utf-8"))
+                    except Exception as e:
+                        capture(
+                            ExecutionFailed(
+                                execution_id=execution_id,
+                                ts=_iso_now(),
+                                seq=self._next_seq(),
+                                type="execution.failed",
+                                error_type="ErrorParseError",
+                                message=str(e),
+                                exit_code=exit_code,
+                                duration_ms=duration_ms,
+                                meta={},
+                            )
+                        )
+                        return emitted
+
+                    msg = err.get("message", "Execution failed")
+                    msg = redactor.redact(msg)
+
                     capture(
                         ExecutionFailed(
                             execution_id=execution_id,
@@ -341,22 +403,24 @@ class PythonShim:
                             seq=self._next_seq(),
                             type="execution.failed",
                             error_type=err.get("error_type", "ExecutionError"),
-                            message=err.get("message", "Execution failed"),
+                            message=msg,
                             exit_code=exit_code,
                             duration_ms=duration_ms,
                             meta=err.get("meta", {}) or {},
                         )
                     )
                     return emitted
-                except Exception as e:
+
+                # 4) Fallbacks
+                if exit_code != 0:
                     capture(
                         ExecutionFailed(
                             execution_id=execution_id,
                             ts=_iso_now(),
                             seq=self._next_seq(),
                             type="execution.failed",
-                            error_type="ErrorParseError",
-                            message=str(e),
+                            error_type="ProcessExit",
+                            message="Python process exited non-zero with no structured error",
                             exit_code=exit_code,
                             duration_ms=duration_ms,
                             meta={},
@@ -364,16 +428,14 @@ class PythonShim:
                     )
                     return emitted
 
-            # Fallback: nonzero exit with no structured error
-            if exit_code != 0:
                 capture(
                     ExecutionFailed(
                         execution_id=execution_id,
                         ts=_iso_now(),
                         seq=self._next_seq(),
                         type="execution.failed",
-                        error_type="ProcessExit",
-                        message="Python process exited non-zero with no structured error",
+                        error_type="MissingResult",
+                        message="Execution finished but no result was produced",
                         exit_code=exit_code,
                         duration_ms=duration_ms,
                         meta={},
@@ -381,21 +443,44 @@ class PythonShim:
                 )
                 return emitted
 
-            # Edge case: exit 0 but no result written
+        except PlatformExecutionError:
+            duration_ms = int((time.perf_counter() - start) * 1000)
             capture(
                 ExecutionFailed(
                     execution_id=execution_id,
                     ts=_iso_now(),
                     seq=self._next_seq(),
                     type="execution.failed",
-                    error_type="MissingResult",
-                    message="Execution finished but no result was produced",
-                    exit_code=exit_code,
+                    error_type=PLATFORM_ERROR_TYPE,
+                    message=PLATFORM_ERROR_MESSAGE,
+                    exit_code=None,
                     duration_ms=duration_ms,
                     meta={},
                 )
             )
-            return emitted
+            raise
+
+        except Exception:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            capture(
+                ExecutionFailed(
+                    execution_id=execution_id,
+                    ts=_iso_now(),
+                    seq=self._next_seq(),
+                    type="execution.failed",
+                    error_type=PLATFORM_ERROR_TYPE,
+                    message=PLATFORM_ERROR_MESSAGE,
+                    exit_code=None,
+                    duration_ms=duration_ms,
+                    meta={},
+                )
+            )
+            import logging
+            logging.exception(
+                "Unhandled platform error during execution",
+                extra={"execution_id": execution_id},
+            )
+            raise
 
 
 def _runner_source(*, entry_filename: str, allow_imports: list[str]) -> str:

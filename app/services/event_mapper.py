@@ -14,6 +14,12 @@ from app.models.events import (
     ReturnValue,
 )
 
+PLATFORM_ERROR_TYPE = "PlatformError"
+PLATFORM_ERROR_MESSAGE = (
+    "Execution failed due to an internal runtime error. "
+    "Please retry or contact support."
+)
+
 
 def event_to_db_payload(event: ExecutionEvent) -> tuple[str, Optional[str]]:
     """
@@ -33,11 +39,15 @@ def event_to_db_payload(event: ExecutionEvent) -> tuple[str, Optional[str]]:
     if isinstance(event, ExecutionCompleted):
         return "ExecutionCompleted", None
 
-    if isinstance(event, ExecutionFailed):
-        return "ExecutionFailed", event.message
-
     if isinstance(event, ExecutionTimedOut):
         return "ExecutionTimedOut", f"Timed out after {event.timeout_s}s"
+
+    if isinstance(event, ExecutionFailed):
+        # 🔒 FINAL SAFETY GATE
+        if event.error_type == PLATFORM_ERROR_TYPE:
+            return "ExecutionFailed", PLATFORM_ERROR_MESSAGE
+
+        return "ExecutionFailed", event.message
 
     if isinstance(event, ReturnValue):
         return "Return", json.dumps(event.value)
