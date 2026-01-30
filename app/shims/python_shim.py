@@ -22,6 +22,82 @@ from app.models.events import (
     StdoutEmitted,
 )
 
+SAFE_BASE_ENV = {
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONDONTWRITEBYTECODE": "1",
+}
+
+# -----------------------------
+# Safety: env isolation + denylist
+# -----------------------------
+
+FORBIDDEN_ENV_PREFIXES = (
+    "SUPABASE_",
+    "DATABASE_",
+    "POSTGRES_",
+    "JWT_",
+    "OPENAI_",
+    "AWS_",
+    "GCP_",
+    "AZURE_",
+)
+
+FORBIDDEN_ENV_KEYS = {
+    "PATH",          # avoid letting user influence executable resolution
+    "PYTHONPATH",    # avoid module injection
+    "PYTHONHOME",
+    "VIRTUAL_ENV",
+    "PIP_INDEX_URL",
+    "PIP_EXTRA_INDEX_URL",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+}
+
+
+def validate_user_env(user_env: dict[str, str]) -> dict[str, str]:
+    """
+    Strict validation of env vars coming from the request.
+    - Rejects secrets/infra-ish prefixes
+    - Rejects keys that can influence runtime/module resolution
+    - Requires string keys/values
+    - Returns a sanitized copy
+    """
+    if not user_env:
+        return {}
+
+    cleaned: dict[str, str] = {}
+
+    for k, v in user_env.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            raise ValueError("All env keys and values must be strings")
+
+        key = k.strip()
+        if not key:
+            raise ValueError("Env var key cannot be empty")
+
+        # Basic safe identifier check (matches typical env var naming)
+        if not key.replace("_", "").isalnum():
+            raise ValueError(f"Invalid env var key: {key}")
+
+        if key in FORBIDDEN_ENV_KEYS:
+            raise ValueError(f"Forbidden env var key: {key}")
+
+        for prefix in FORBIDDEN_ENV_PREFIXES:
+            if key.startswith(prefix):
+                raise ValueError(f"Forbidden env var prefix for key: {key}")
+
+        cleaned[key] = v
+
+    return cleaned
+
+
+def build_subprocess_env(user_env: dict[str, str]) -> dict[str, str]:
+    # IMPORTANT: do NOT inherit os.environ
+    return {
+        **SAFE_BASE_ENV,
+        **user_env,  # validated
+    }
+
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -77,6 +153,26 @@ class PythonShim:
 
         start = time.perf_counter()
 
+        # Validate env early, fail before subprocess if unsafe
+        try:
+            safe_user_env = validate_user_env(env or {})
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            capture(
+                ExecutionFailed(
+                    execution_id=execution_id,
+                    ts=_iso_now(),
+                    seq=self._next_seq(),
+                    type="execution.failed",
+                    error_type="EnvValidationError",
+                    message=str(e),
+                    exit_code=None,
+                    duration_ms=duration_ms,
+                    meta={},
+                )
+            )
+            return emitted
+
         # Temp workspace for isolated execution
         with tempfile.TemporaryDirectory(prefix="hsemulate_py_") as td:
             workdir = Path(td)
@@ -113,12 +209,11 @@ class PythonShim:
                 )
             )
 
-            proc_env = os.environ.copy()
-            proc_env.update(env or {})
-            proc_env["HSEMULATE_EVENT_PATH"] = str(event_path)
-            proc_env["HSEMULATE_RESULT_PATH"] = str(result_path)
-            proc_env["HSEMULATE_ERROR_PATH"] = str(error_path)
-            proc_env["HSEMULATE_ENTRY"] = entry
+            # Add internal shim variables to the isolated env
+            safe_user_env["HSEMULATE_EVENT_PATH"] = str(event_path)
+            safe_user_env["HSEMULATE_RESULT_PATH"] = str(result_path)
+            safe_user_env["HSEMULATE_ERROR_PATH"] = str(error_path)
+            safe_user_env["HSEMULATE_ENTRY"] = entry
 
             # Use -u for unbuffered output, -I for isolated mode (no user site, ignores env usercustomize)
             python_exe = sys.executable
@@ -129,7 +224,7 @@ class PythonShim:
                 "-u",
                 str(runner_path),
                 cwd=str(workdir),
-                env=proc_env,
+                env=build_subprocess_env(safe_user_env),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
