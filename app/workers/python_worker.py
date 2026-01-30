@@ -13,7 +13,52 @@ logger = logging.getLogger(__name__)
 
 shim = PythonShim(
     timeout_s=15,
-    allow_imports=[],
+    allow_imports=[
+        # requests
+        "requests",
+        "urllib3",
+        "idna",
+        "certifi",
+        "charset_normalizer",
+
+        # hubspot
+        "hubspot",
+        "six",
+        "python_dateutil",
+        "dateutil",
+        "typing_extensions",
+
+        # google api
+        "googleapiclient",
+        "google",
+        "httplib2",
+        "uritemplate",
+        "google_auth",
+        "google_auth_httplib2",
+        "oauth2client",
+        "rsa",
+        "pyasn1",
+        "pyasn1_modules",
+        "cachetools",
+
+        # mysql
+        "mysql",
+        "mysql_connector_python",
+        "cryptography",
+
+        # redis
+        "redis",
+        "async_timeout",
+
+        # nltk
+        "nltk",
+        "regex",
+        "joblib",
+        "tqdm",
+        "numpy",
+        "scipy",
+        "sklearn",
+    ],
     sink=RealtimeDBEventSink(),
 )
 
