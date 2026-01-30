@@ -7,6 +7,7 @@ from uuid import UUID
 from app.shims.python_shim import PythonShim
 from app.db.executions_repo import update_execution_status
 from app.services.event_sink import RealtimeDBEventSink
+from app.services.secret_resolver import resolve_secret_value
 
 logger = logging.getLogger(__name__)
 
@@ -119,13 +120,39 @@ async def run_python_job(execution_id: UUID, payload: Dict[str, Any]) -> None:
         },
     )
 
+    raw_env = cfg.get("env", {})
+    resolved_env: dict[str, str] = {}
+
+    for key, value in raw_env.items():
+        if isinstance(value, dict) and value.get("type") == "secret":
+            secret_id = (
+                value["secret_id"]
+                if isinstance(value["secret_id"], UUID)
+                else UUID(value["secret_id"])
+            )
+
+            logger.debug(
+                "Resolving secret env var",
+                extra={
+                    "execution_id": str(execution_id),
+                    "env_key": key,
+                    "secret_id": str(secret_id),
+                },
+            )
+
+            resolved_env[key] = resolve_secret_value(secret_id)
+        else:
+            if not isinstance(value, str):
+                raise ValueError(f"Env var {key} must be string or secret ref")
+            resolved_env[key] = value
+
     # Run shim (events emitted via sink)
     events = await shim.run(
         execution_id=execution_id,
         action_source=action["source"],
         entry=action["entry"],
         event_source=event_source,
-        env=cfg.get("env", {}),
+        env=resolved_env,
     )
 
     logger.info(

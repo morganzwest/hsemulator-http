@@ -99,3 +99,47 @@ def get_secret_by_id(secret_id: UUID) -> dict:
         raise KeyError("Secret not found")
 
     return result.data
+
+
+def update_secret_value(
+    *,
+    secret_id: UUID,
+    ciphertext: bytes,
+    nonce: bytes,
+    dek_wrapped: bytes,
+    dek_nonce: bytes,
+    aad: dict,
+    kek_key_id: str,
+) -> None:
+    supabase = get_supabase()
+
+    payload = {
+        "ciphertext": encode_bytea_hex(ciphertext),
+        "nonce": encode_bytea_hex(nonce),
+        "dek_wrapped": encode_bytea_hex(dek_wrapped),
+        "dek_nonce": encode_bytea_hex(dek_nonce),
+        "aad": aad,
+        "kek_key_id": kek_key_id,
+    }
+
+    try:
+        result = (
+            supabase
+            .table("secrets")
+            .update(payload)
+            .eq("id", str(secret_id))
+            .execute()
+        )
+
+        if not result.data:
+            raise SecretPersistenceError("Secret not found")
+
+    except SecretPersistenceError:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Failed to update secret value",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Failed to update secret")

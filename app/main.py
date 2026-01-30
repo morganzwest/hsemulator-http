@@ -15,6 +15,8 @@ from app.auth import require_runtime_token
 from app.models.secrets import CreateSecretRequest, CreateSecretResponse
 from app.services.secret_service import create_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
+from app.models.secrets import UpdateSecretRequest, UpdateSecretResponse
+from app.services.secret_service import update_secret
 
 handler = logging.StreamHandler()
 handler.setFormatter(
@@ -91,14 +93,34 @@ def create_secret_endpoint(req: CreateSecretRequest):
     )
 
 
-@app.get(
-    "/test-decrypt/{secret_id}",
+@app.put(
+    "/secrets/{secret_id}",
+    response_model=UpdateSecretResponse,
     dependencies=[Depends(require_runtime_token)],
 )
-def test_decrypt_secret(secret_id: UUID):
-    """
-    TEST ONLY.
-    Returns decrypted secret material.
-    REMOVE OR FEATURE-FLAG BEFORE PRODUCTION.
-    """
-    return decrypt_secret_for_test(secret_id)
+def update_secret_endpoint(
+    secret_id: UUID,
+    req: UpdateSecretRequest,
+):
+    update_secret(
+        secret_id=secret_id,
+        value=req.value,
+    )
+
+    return UpdateSecretResponse(
+        ok=True,
+        secret_id=secret_id,
+    )
+
+
+# @app.get(
+#     "/test-decrypt/{secret_id}",
+#     dependencies=[Depends(require_runtime_token)],
+# )
+# def test_decrypt_secret(secret_id: UUID):
+#     """
+#     TEST ONLY.
+#     Returns decrypted secret material.
+#     REMOVE OR FEATURE-FLAG BEFORE PRODUCTION.
+#     """
+#     return decrypt_secret_for_test(secret_id)

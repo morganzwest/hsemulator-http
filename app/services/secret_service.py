@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.utils.crypto import encrypt_secret
-from app.db.secrets import insert_secret
+from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id
 from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,
@@ -64,3 +64,41 @@ def create_secret(
             },
         )
         raise SecretPersistenceError("Unhandled error during secret creation")
+
+
+def update_secret(
+    *,
+    secret_id: UUID,
+    value: str,
+) -> None:
+    try:
+        record = get_secret_by_id(secret_id)
+
+        encrypted = encrypt_secret(
+            plaintext=value,
+            portal_id=str(record["portal_id"]),
+            name=record["name"],
+            scope=record["scope"],
+            action_id=str(record["action_id"]) if record.get(
+                "action_id") else None,
+        )
+
+        update_secret_value(
+            secret_id=secret_id,
+            ciphertext=encrypted["ciphertext"],
+            nonce=encrypted["nonce"],
+            dek_wrapped=encrypted["dek_wrapped"],
+            dek_nonce=encrypted["dek_nonce"],
+            aad=encrypted["aad"],
+            kek_key_id=encrypted["kek_key_id"],
+        )
+
+    except SecretPersistenceError:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Unhandled error during secret update",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Unhandled error during secret update")
