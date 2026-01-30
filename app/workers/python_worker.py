@@ -6,16 +6,15 @@ from uuid import UUID
 
 from app.shims.python_shim import PythonShim
 from app.db.executions_repo import update_execution_status
+from app.services.event_sink import RealtimeDBEventSink
 
 logger = logging.getLogger(__name__)
 
 
 shim = PythonShim(
     timeout_s=15,
-    allow_imports=[
-        # Add allowed third-party imports here (top-level)
-        # "requests",
-    ],
+    allow_imports=[],
+    sink=RealtimeDBEventSink(),
 )
 
 
