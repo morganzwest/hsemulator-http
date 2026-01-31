@@ -1,19 +1,18 @@
-import os
+import google.auth
+from google.auth.transport.requests import Request
 import httpx
-from uuid import UUID
-from typing import Dict, Any
-
-GCP_PROJECT = os.environ["GCP_PROJECT"]
-GCP_REGION = os.environ["GCP_REGION"]
-JOB_NAME = os.environ["WORKER_JOB_NAME"]
 
 
-async def run_execution_job(
-    execution_id: UUID,
-) -> None:
-    """
-    Triggers a Cloud Run Job execution.
-    """
+async def run_execution_job(execution_id: UUID) -> None:
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    credentials.refresh(Request())
+
+    headers = {
+        "Authorization": f"Bearer {credentials.token}",
+        "Content-Type": "application/json",
+    }
 
     url = (
         f"https://{GCP_REGION}-run.googleapis.com"
@@ -39,5 +38,5 @@ async def run_execution_job(
     }
 
     async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(url, json=body)
+        response = await client.post(url, json=body, headers=headers)
         response.raise_for_status()
