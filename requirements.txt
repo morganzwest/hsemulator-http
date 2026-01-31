@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+httpx
+pydantic
+python-dateutil
+supabase
+postgrest
+gotrue
+realtime
+storage3
+anyio
+cryptography
+typing-extensions
+dotenv
