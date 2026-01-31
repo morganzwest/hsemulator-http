@@ -2,6 +2,11 @@ import google.auth
 from google.auth.transport.requests import Request
 from uuid import UUID
 import httpx
+import os
+
+GCP_PROJECT = os.environ["GCP_PROJECT"]
+GCP_REGION = os.environ["GCP_REGION"]
+JOB_NAME = os.environ["WORKER_JOB_NAME"]
 
 
 async def run_execution_job(execution_id: UUID) -> None:
