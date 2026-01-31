@@ -1,18 +1,17 @@
 import asyncio
 import sys
-from app.main import app
+import os
 import uvicorn
-
-# Root
 
 
 def main():
-    if sys.platform.startswith("win"):
-        runner = asyncio.Runner(loop_factory=asyncio.ProactorEventLoop)
-        with runner:
-            uvicorn.run(app, host="0.0.0.0", port=8000)
-    else:
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
