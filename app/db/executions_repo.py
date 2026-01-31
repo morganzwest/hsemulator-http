@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
+
 from app.models.errors import ExecutionNotFoundError
 from app.db.client import get_supabase
 
@@ -13,10 +15,24 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def get_execution_by_id(execution_id: UUID) -> dict | None:
+    supabase = get_supabase()
+    return (
+        supabase
+        .table("action_executions")
+        .select("*")
+        .eq("id", str(execution_id))
+        .single()
+        .execute()
+        .data
+    )
+
+
 def update_execution_status(
     *,
     execution_id: str,
     status: str,
+    payload: dict[str, Any] | None = None,   # ✅ NEW
     result: dict[str, Any] | None = None,
     error_message: str | None = None,
     ok: bool | None = None,
@@ -29,6 +45,9 @@ def update_execution_status(
     update: dict[str, Any] = {
         "status": status,
     }
+
+    if payload is not None:
+        update["payload"] = payload
 
     if started:
         update["started_at"] = _iso_now()
@@ -56,6 +75,7 @@ def update_execution_status(
             "started": started,
             "finished": finished,
             "ok": ok,
+            "has_payload": payload is not None,
             "has_result": result is not None,
         },
     )
@@ -68,6 +88,7 @@ def update_execution_status(
             .eq("id", execution_id)
             .execute()
         )
+
         if not response.data:
             logger.warning(
                 "Execution not found",
@@ -77,15 +98,6 @@ def update_execution_status(
                 },
             )
             raise ExecutionNotFoundError(execution_id)
-
-        logger.debug(
-            "Execution status updated successfully",
-            extra={
-                "execution_id": execution_id,
-                "status": status,
-                "rows_affected": len(response.data) if response.data else 0,
-            },
-        )
 
         return response
 

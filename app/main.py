@@ -8,15 +8,16 @@ from app.config import settings
 from app.models import HealthResponse, ExecuteRequest, ExecuteAcceptedResponse
 from app.db import get_supabase
 from app.services.execution_service import enqueue_execution_job
-from app.workers.base import worker_loop
 import logging
-from app.logging import ExecutionContextFilter
+from app.logger import ExecutionContextFilter
 from app.auth import require_runtime_token
 from app.models.secrets import CreateSecretRequest, CreateSecretResponse
 from app.services.secret_service import create_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.models.secrets import UpdateSecretRequest, UpdateSecretResponse
 from app.services.secret_service import update_secret
+from app.workers.base import run_execution
+
 
 handler = logging.StreamHandler()
 handler.setFormatter(
@@ -41,13 +42,6 @@ app = FastAPI(
 )
 
 
-@app.on_event("startup")
-async def on_startup():
-    # Start a single in-process worker for now.
-    # Later you’ll run dedicated worker processes instead.
-    asyncio.create_task(worker_loop())
-
-
 @app.get("/health", response_model=HealthResponse)
 def health_check():
     supabase = get_supabase()
@@ -60,10 +54,15 @@ def health_check():
     )
 
 
-@app.post("/execute", response_model=ExecuteAcceptedResponse, dependencies=[Depends(require_runtime_token)])
+@app.post("/execute")
 async def execute(req: ExecuteRequest):
-    # enqueue job + update status in DB
-    await enqueue_execution_job(req.execution_id, req.model_dump())
+    payload = req.model_dump(mode="json")
+
+    await enqueue_execution_job(req.execution_id, payload)
+
+    if settings.execution_mode == "local":
+        # Run worker inline for local dev
+        await run_execution(req.execution_id)
 
     return ExecuteAcceptedResponse(
         ok=True,
