@@ -92,9 +92,10 @@ async def execute(req: ExecuteRequest):
     await enqueue_execution_job(req.execution_id, payload)
 
     if settings.execution_mode == "local":
-        if IS_CLOUD_RUN:
-            raise RuntimeError(
-                "Local execution mode is not allowed in Cloud Run")
+        # NOTE: Long term, this should be enabled.
+        # if IS_CLOUD_RUN:
+        #     raise RuntimeError(
+        #         "Local execution mode is not allowed in Cloud Run")
         await run_execution(req.execution_id)
 
     return ExecuteAcceptedResponse(
