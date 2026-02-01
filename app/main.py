@@ -1,4 +1,5 @@
 from __future__ import annotations
+from fastapi import Response
 
 import asyncio
 import logging
@@ -55,7 +56,7 @@ origins = (
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,          # DO NOT use ["*"] with credentials
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -64,6 +65,11 @@ app.add_middleware(
 # ----------------------------
 # Routes
 # ----------------------------
+
+
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    return Response(status_code=204)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -81,10 +87,11 @@ def health_check():
 async def execute(req: ExecuteRequest):
     payload = req.model_dump(mode="json")
 
+    # ALWAYS persist
+    await enqueue_execution_job(req.execution_id, payload)
+
     if settings.execution_mode == "local":
         await run_execution(req.execution_id)
-    else:
-        await enqueue_execution_job(req.execution_id, payload)
 
     return ExecuteAcceptedResponse(
         ok=True,
