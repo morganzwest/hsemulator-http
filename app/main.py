@@ -7,6 +7,8 @@ from uuid import UUID
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
 
 from app.config import settings
 from app.models import HealthResponse, ExecuteRequest, ExecuteAcceptedResponse
@@ -69,9 +71,12 @@ app.add_middleware(
 # ----------------------------
 
 
-@app.options("/{path:path}")
-async def options_handler(path: str):
-    return Response(status_code=204)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc)},
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
