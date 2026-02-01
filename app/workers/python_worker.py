@@ -1,4 +1,11 @@
 from __future__ import annotations
+from app.models.events import (
+    ExecutionEvent,
+    ExecutionCompleted,
+    ExecutionFailed,
+    ExecutionTimedOut,
+)
+from typing import Iterable, Optional
 
 import logging
 from typing import Any, Dict
@@ -10,6 +17,29 @@ from app.services.event_sink import RealtimeDBEventSink
 from app.services.secret_resolver import resolve_secret_value
 
 logger = logging.getLogger(__name__)
+
+
+def classify_execution(events: Iterable[ExecutionEvent]) -> tuple[bool, Optional[str]]:
+    """
+    Returns (ok, error_message)
+    """
+
+    # Any hard failure wins
+    for ev in reversed(events):
+        if isinstance(ev, (ExecutionFailed, ExecutionTimedOut)):
+            return False, getattr(ev, "message", "Execution failed")
+
+        # Defensive: completed but explicitly not ok
+        if isinstance(ev, ExecutionCompleted) and ev.ok is False:
+            return False, "Execution completed with ok=false"
+
+    # Success only if we *actually* completed successfully
+    for ev in reversed(events):
+        if isinstance(ev, ExecutionCompleted) and ev.ok is True:
+            return True, None
+
+    # No terminal signal at all → treat as failure
+    return False, "Execution ended without terminal event"
 
 
 shim = PythonShim(
@@ -164,9 +194,9 @@ async def run_python_job(execution_id: UUID, payload: Dict[str, Any]) -> None:
     )
 
     # Determine final status from terminal event
-    last = events[-1] if events else None
+    ok, error_message = classify_execution(events)
 
-    if last and getattr(last, "type", "") == "execution.completed":
+    if ok:
         logger.info(
             "Execution completed successfully",
             extra={"execution_id": str(execution_id)},
@@ -177,23 +207,15 @@ async def run_python_job(execution_id: UUID, payload: Dict[str, Any]) -> None:
             status="completed",
             finished=True,
             ok=True,
-            result={"ok": True},  # replace later with structured return
+            result={"ok": True},  # later: wire ReturnValue
         )
         return
-
-    # Failure path
-    msg = "Execution failed"
-    for ev in reversed(events):
-        if getattr(ev, "type", "") in ("execution.failed", "execution.timed_out"):
-            if hasattr(ev, "message"):
-                msg = ev.message
-            break
 
     logger.warning(
         "Execution failed",
         extra={
             "execution_id": str(execution_id),
-            "reason": msg,
+            "reason": error_message,
         },
     )
 
@@ -202,5 +224,5 @@ async def run_python_job(execution_id: UUID, payload: Dict[str, Any]) -> None:
         status="failed",
         finished=True,
         ok=False,
-        error_message=msg,
+        error_message=error_message,
     )
