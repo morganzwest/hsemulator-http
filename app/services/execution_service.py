@@ -4,7 +4,7 @@ from uuid import UUID
 
 from app.db.executions_repo import update_execution_status, get_execution_by_id
 from app.gcp.jobs import run_execution_job
-from config import settings
+from app.config import settings
 
 
 async def get_execution_payload(execution_id: UUID) -> Dict[str, Any]:
