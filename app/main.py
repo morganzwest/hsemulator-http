@@ -23,7 +23,9 @@ from app.models.secrets import (
 from app.services.secret_service import create_secret, update_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.workers.base import run_execution
+from os import getenv
 
+IS_CLOUD_RUN = bool(getenv("K_SERVICE"))
 
 handler = logging.StreamHandler()
 handler.setFormatter(
@@ -87,10 +89,12 @@ def health_check():
 async def execute(req: ExecuteRequest):
     payload = req.model_dump(mode="json")
 
-    # ALWAYS persist
     await enqueue_execution_job(req.execution_id, payload)
 
     if settings.execution_mode == "local":
+        if IS_CLOUD_RUN:
+            raise RuntimeError(
+                "Local execution mode is not allowed in Cloud Run")
         await run_execution(req.execution_id)
 
     return ExecuteAcceptedResponse(
