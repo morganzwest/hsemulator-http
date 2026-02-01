@@ -80,10 +80,11 @@ def health_check():
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
     payload = req.model_dump(mode="json")
-    await enqueue_execution_job(req.execution_id, payload)
 
     if settings.execution_mode == "local":
         await run_execution(req.execution_id)
+    else:
+        await enqueue_execution_job(req.execution_id, payload)
 
     return ExecuteAcceptedResponse(
         ok=True,
