@@ -155,8 +155,12 @@ def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
             portal_id=req.portal_id,
             user_id=req.user_id
         )
-        return DeleteSecretResponse(ok=True,secret_id=secret_id)
-    
+        return DeleteSecretResponse(ok=True, secret_id=secret_id)
+
+    except HTTPException:
+        # Portal mismatch (401) or Forbidden (403) from service layer
+        raise
+
     except SecretPersistenceError as e:
         if "not found" in str(e).lower():
             raise HTTPException(status_code=404, detail="Secret not found")

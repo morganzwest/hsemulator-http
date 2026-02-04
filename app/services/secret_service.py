@@ -8,6 +8,7 @@ from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,
 )
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -121,15 +122,18 @@ def delete_secret(*, secret_id: UUID) -> None:
         raise SecretPersistenceError("Unhandled error during secret delete")
     
 
-def delete_secret (*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
-    secret = get_secret_by_id(secret_id)
+def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
+    try:
+        secret = get_secret_by_id(secret_id)  # ideally raises SecretPersistenceError("Secret not found")
+    except KeyError:
+        # only needed if get_secret_by_id currently raises KeyError
+        raise SecretPersistenceError("Secret not found")
 
     if str(secret["portal_id"]) != str(portal_id):
-        raise SecretPersistenceError("Portal mismatch")
-    
-    owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
+        raise HTTPException(status_code=401, detail="Portal mismatch")
 
+    owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
     if user_id not in owner_ids:
-        raise SecretPersistenceError("Forbidden")
-    
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     delete_secret_record(secret_id=secret_id)
