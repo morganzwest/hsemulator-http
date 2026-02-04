@@ -5,7 +5,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
@@ -21,10 +21,15 @@ from app.models.secrets import (
     CreateSecretResponse,
     UpdateSecretRequest,
     UpdateSecretResponse,
+    DeleteSecretResponse
 )
-from app.services.secret_service import create_secret, update_secret
+
+from app.services.secret_service import create_secret, update_secret, delete_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.workers.base import run_execution
+from app.models.errors import (
+    SecretPersistenceError,
+)
 from os import getenv
 
 IS_CLOUD_RUN = bool(getenv("K_SERVICE"))
@@ -135,3 +140,19 @@ def create_secret_endpoint(req: CreateSecretRequest):
 def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     update_secret(secret_id=secret_id, value=req.value)
     return UpdateSecretResponse(ok=True, secret_id=secret_id)
+
+
+@app.delete(
+    "/secrets/{secret_id}",
+    response_model=DeleteSecretResponse,
+    dependencies=[Depends(require_runtime_token)]
+)
+def delete_secret_endpoint(secret_id: UUID):
+    try:
+        delete_secret(secret_id=secret_id)
+        return DeleteSecretResponse(ok=True,secret_id=secret_id)
+    
+    except SecretPersistenceError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail="Secret not found")
+        raise HTTPException(status_code=500, detail="Failed to delete secret")

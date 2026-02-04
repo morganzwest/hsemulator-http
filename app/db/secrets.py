@@ -143,3 +143,29 @@ def update_secret_value(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Failed to update secret")
+
+
+def delete_secret_record(*, secret_id: UUID) -> None:
+    supabase = get_supabase()
+
+    try:
+        result = (
+            supabase
+            .table("secrets")
+            .delete()
+            .eq("id", str(secret_id))
+            .execute()
+        )
+
+        if not result.data:
+            raise SecretPersistenceError("Secret not found")
+
+    except SecretPersistenceError:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Failed to delete secret",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Failed to delete secret")

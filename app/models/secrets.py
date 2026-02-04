@@ -142,3 +142,18 @@ class UpdateSecretResponse(BaseModel):
         description="ID of the updated secret.",
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
     )
+
+class DeleteSecretResponse(BaseModel):
+    """
+    Response returned after a secret is successfully deleted.
+    """
+    ok: bool = Field(
+        ...,
+        description="Indicates whether a secret ws deleted successfully",
+        examples=[True],
+    )
+    secret_id: UUID = Field(
+        ...,
+        description="ID of the deleted secret.",
+        examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"]
+    )

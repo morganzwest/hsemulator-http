@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.utils.crypto import encrypt_secret
-from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id
+from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id, delete_secret_record
 from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,
@@ -102,3 +102,20 @@ def update_secret(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Unhandled error during secret update")
+
+
+def delete_secret(*, secret_id: UUID) -> None:
+    try:
+        get_secret_by_id(secret_id)
+
+        delete_secret_record(secret_id=secret_id)
+
+    except SecretPersistenceError:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Unhandled error during secret delete",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Unhandled error during secret delete")
