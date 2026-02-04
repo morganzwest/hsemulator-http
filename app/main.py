@@ -21,7 +21,8 @@ from app.models.secrets import (
     CreateSecretResponse,
     UpdateSecretRequest,
     UpdateSecretResponse,
-    DeleteSecretResponse
+    DeleteSecretResponse,
+    DeleteSecretRequest
 )
 
 from app.services.secret_service import create_secret, update_secret, delete_secret
@@ -147,9 +148,13 @@ def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     response_model=DeleteSecretResponse,
     dependencies=[Depends(require_runtime_token)]
 )
-def delete_secret_endpoint(secret_id: UUID):
+def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
     try:
-        delete_secret(secret_id=secret_id)
+        delete_secret(
+            secret_id=secret_id,
+            portal_id=req.portal_id,
+            user_id=req.user_id
+        )
         return DeleteSecretResponse(ok=True,secret_id=secret_id)
     
     except SecretPersistenceError as e:

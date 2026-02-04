@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import Optional
 
 from app.utils.crypto import encrypt_secret
-from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id, delete_secret_record
+from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id, delete_secret_record, get_portal_owner_profile_ids
 from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,

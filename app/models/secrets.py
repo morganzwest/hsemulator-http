@@ -157,3 +157,7 @@ class DeleteSecretResponse(BaseModel):
         description="ID of the deleted secret.",
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"]
     )
+
+class DeleteSecretRequest(BaseModel):
+    portal_id: UUID
+    user_id: UUID
