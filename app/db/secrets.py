@@ -169,3 +169,25 @@ def delete_secret_record(*, secret_id: UUID) -> None:
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Failed to delete secret")
+
+def get_portal_owner_profile_ids(*, portal_id: UUID) -> list[UUID]:
+    supabase = get_supabase()
+
+    try:
+        result = (
+            supabase
+            .table("profiles")
+            .select("id")
+            .contains("portal_uuids", [str(portal_id)])
+            .execute()
+        )
+
+        return [UUID(row["id"]) for row in (result.data or [])]
+
+    except Exception:
+        logger.exception(
+            "Failed to fetch portal owners",
+            extra={"portal_id": str(portal_id)},
+        )
+        raise SecretPersistenceError("Failed to fetch portal owners")
+

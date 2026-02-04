@@ -119,3 +119,17 @@ def delete_secret(*, secret_id: UUID) -> None:
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Unhandled error during secret delete")
+    
+
+def delete_secret (*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
+    secret = get_secret_by_id(secret_id)
+
+    if str(secret["portal_id"]) != str(portal_id):
+        raise SecretPersistenceError("Portal mismatch")
+    
+    owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
+
+    if user_id not in owner_ids:
+        raise SecretPersistenceError("Forbidden")
+    
+    delete_secret_record(secret_id=secret_id)
