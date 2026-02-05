@@ -162,6 +162,4 @@ def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
         raise
 
     except SecretPersistenceError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=404, detail="Secret not found")
         raise HTTPException(status_code=500, detail="Failed to delete secret")

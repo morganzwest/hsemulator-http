@@ -103,6 +103,9 @@ def get_secret_by_id(secret_id: UUID) -> dict:
         # If multiple rows somehow come back, just take the first
         return result.data[0]
 
+    except HTTPException:
+        raise
+
     except SecretPersistenceError:
         raise
 
