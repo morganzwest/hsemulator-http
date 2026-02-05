@@ -105,35 +105,39 @@ def update_secret(
         raise SecretPersistenceError("Unhandled error during secret update")
 
 
-def delete_secret(*, secret_id: UUID) -> None:
-    try:
-        get_secret_by_id(secret_id)
+# def delete_secret(*, secret_id: UUID) -> None:
+#     try:
+#         get_secret_by_id(secret_id)
 
-        delete_secret_record(secret_id=secret_id)
+#         delete_secret_record(secret_id=secret_id)
 
-    except SecretPersistenceError:
-        raise
+#     except SecretPersistenceError:
+#         raise
 
-    except Exception:
-        logger.exception(
-            "Unhandled error during secret delete",
-            extra={"secret_id": str(secret_id)},
-        )
-        raise SecretPersistenceError("Unhandled error during secret delete")
+#     except Exception:
+#         logger.exception(
+#             "Unhandled error during secret delete",
+#             extra={"secret_id": str(secret_id)},
+#         )
+#         raise SecretPersistenceError("Unhandled error during secret delete")
     
 
 def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
     try:
-        secret = get_secret_by_id(secret_id)  # ideally raises SecretPersistenceError("Secret not found")
-    except KeyError:
-        # only needed if get_secret_by_id currently raises KeyError
-        raise SecretPersistenceError("Secret not found")
+        secret = get_secret_by_id(secret_id)
 
-    if str(secret["portal_id"]) != str(portal_id):
-        raise HTTPException(status_code=401, detail="Portal mismatch")
+        if str(secret["portal_id"]) != str(portal_id):
+            raise HTTPException(status_code=403, detail="Portal mismatch")
 
-    owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
-    if user_id not in owner_ids:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
+        if user_id not in owner_ids:
+            raise HTTPException(status_code=403, detail="Forbidden: User is not an owner of the portal")
 
-    delete_secret_record(secret_id=secret_id)
+        delete_secret_record(secret_id=secret_id)
+
+    except HTTPException:
+        raise
+
+    except SecretPersistenceError:
+        # includes "Secret not found"
+        raise

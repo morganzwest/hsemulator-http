@@ -4,6 +4,7 @@ from uuid import UUID
 from typing import Optional
 from app.db import get_supabase
 from app.models.errors import SecretPersistenceError
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -82,23 +83,36 @@ def insert_secret(
 def get_secret_by_id(secret_id: UUID) -> dict:
     supabase = get_supabase()
 
-    result = (
-        supabase
-        .table("secrets")
-        .select(
-            "id, scope, portal_id, action_id, name, "
-            "ciphertext, nonce, dek_wrapped, dek_nonce, aad, kek_key_id, "
-            "created_at, created_by"
+    try:
+        result = (
+            supabase
+            .table("secrets")
+            .select(
+                "id, scope, portal_id, action_id, name, "
+                "ciphertext, nonce, dek_wrapped, dek_nonce, aad, kek_key_id, "
+                "created_at, created_by"
+            )
+            .eq("id", str(secret_id))
+            .execute()
         )
-        .eq("id", str(secret_id))
-        .single()
-        .execute()
-    )
 
-    if not result.data:
-        raise KeyError("Secret not found")
+        # result.data will be [] if no rows match
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Secret not found")
 
-    return result.data
+        # If multiple rows somehow come back, just take the first
+        return result.data[0]
+
+    except SecretPersistenceError:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Failed to fetch secret",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Failed to fetch secret")
+
 
 
 def update_secret_value(
