@@ -96,11 +96,10 @@ def get_secret_by_id(secret_id: UUID) -> dict:
             .execute()
         )
 
-        # result.data will be [] if no rows match
         if not result.data:
             raise HTTPException(status_code=404, detail="Secret not found")
 
-        # If multiple rows somehow come back, just take the first
+        
         return result.data[0]
 
     except HTTPException:
