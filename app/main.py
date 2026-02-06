@@ -5,7 +5,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
@@ -21,10 +21,19 @@ from app.models.secrets import (
     CreateSecretResponse,
     UpdateSecretRequest,
     UpdateSecretResponse,
+    DeleteSecretResponse,
+    DeleteSecretRequest
 )
-from app.services.secret_service import create_secret, update_secret
+
+from app.services.secret_service import create_secret, update_secret, delete_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.workers.base import run_execution
+from app.models.errors import (
+    SecretPersistenceError,
+    SecretPortalMismatchError,
+    SecretForbiddenError,
+    SecretNotFoundError
+)
 from os import getenv
 
 IS_CLOUD_RUN = bool(getenv("K_SERVICE"))
@@ -135,3 +144,24 @@ def create_secret_endpoint(req: CreateSecretRequest):
 def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     update_secret(secret_id=secret_id, value=req.value)
     return UpdateSecretResponse(ok=True, secret_id=secret_id)
+
+
+@app.delete(
+    "/secrets/{secret_id}",
+    response_model=DeleteSecretResponse,
+    dependencies=[Depends(require_runtime_token)]
+)
+def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
+    try:
+        delete_secret(
+            secret_id=secret_id,
+            portal_id=req.portal_id,
+            user_id=req.user_id
+        )
+        return DeleteSecretResponse(ok=True, secret_id=secret_id)
+
+    except (SecretNotFoundError, SecretPortalMismatchError, SecretForbiddenError) as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+    except SecretPersistenceError as e:
+        raise e

@@ -3,7 +3,8 @@ import logging
 from uuid import UUID
 from typing import Optional
 from app.db import get_supabase
-from app.models.errors import SecretPersistenceError
+from app.models.errors import SecretPersistenceError, SecretNotFoundError
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -82,23 +83,36 @@ def insert_secret(
 def get_secret_by_id(secret_id: UUID) -> dict:
     supabase = get_supabase()
 
-    result = (
-        supabase
-        .table("secrets")
-        .select(
-            "id, scope, portal_id, action_id, name, "
-            "ciphertext, nonce, dek_wrapped, dek_nonce, aad, kek_key_id, "
-            "created_at, created_by"
+    try:
+        result = (
+            supabase
+            .table("secrets")
+            .select(
+                "id, scope, portal_id, action_id, name, "
+                "ciphertext, nonce, dek_wrapped, dek_nonce, aad, kek_key_id, "
+                "created_at, created_by"
+            )
+            .eq("id", str(secret_id))
+            .execute()
         )
-        .eq("id", str(secret_id))
-        .single()
-        .execute()
-    )
 
-    if not result.data:
-        raise KeyError("Secret not found")
+        if not result.data:
+            raise SecretNotFoundError()
 
-    return result.data
+        
+        return result.data[0]
+
+    except (SecretNotFoundError, SecretPersistenceError):
+        raise
+
+
+    except Exception:
+        logger.exception(
+            "Failed to fetch secret",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError("Failed to fetch secret")
+
 
 
 def update_secret_value(
@@ -143,3 +157,47 @@ def update_secret_value(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Failed to update secret")
+
+
+def delete_secret_record(*, secret_id: UUID) -> None:
+    supabase = get_supabase()
+
+    # Note: Supabase Python client doesn't support chaining `.select()` after `.delete()`.
+    # Existence is validated earlier via get_secret_by_id() in the service layer.
+    try:
+        (
+            supabase
+            .table("secrets")
+            .delete()
+            .eq("id", str(secret_id))
+            .execute()
+        )
+    except Exception as e:
+        logger.exception(
+            "Failed to delete secret",
+            extra={"secret_id": str(secret_id)},
+        )
+        raise SecretPersistenceError(f"Failed to delete secret: {e!r}")
+
+
+def get_portal_owner_profile_ids(*, portal_id: UUID) -> list[UUID]:
+    supabase = get_supabase()
+
+    try:
+        result = (
+            supabase
+            .table("profiles")
+            .select("id")
+            .contains("portal_uuids", [str(portal_id)])
+            .execute()
+        )
+
+        return [UUID(row["id"]) for row in (result.data or [])]
+
+    except Exception:
+        logger.exception(
+            "Failed to fetch portal owners",
+            extra={"portal_id": str(portal_id)},
+        )
+        raise SecretPersistenceError("Failed to fetch portal owners")
+

@@ -3,11 +3,15 @@ from uuid import UUID
 from typing import Optional
 
 from app.utils.crypto import encrypt_secret
-from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id
+from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id, delete_secret_record, get_portal_owner_profile_ids
 from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,
+    SecretNotFoundError,
+    SecretPortalMismatchError,
+    SecretForbiddenError
 )
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -102,3 +106,36 @@ def update_secret(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Unhandled error during secret update")
+    
+
+def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
+    """Deletes a secret after validating portal ownership and user authorisation.
+
+    This function performs layered authorisation checks before deletion:
+
+    1. Ensures the secret exists.
+    2. Confirms the provided portal_id matches the secret's portal_id.
+    3. Verifies the provided user_id belongs to an owner of the portal.
+
+    Raises:
+        HTTPException: If the portal does not match or the user is not authorised.
+        SecretPersistenceError: If the secret cannot be retrieved or deleted."""
+    
+    try:
+        secret = get_secret_by_id(secret_id)
+
+        if str(secret["portal_id"]) != str(portal_id):
+            raise SecretPortalMismatchError()
+
+        owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
+        if user_id not in owner_ids:
+            raise SecretForbiddenError("Forbidden: User is not an owner of the portal")
+
+        delete_secret_record(secret_id=secret_id)
+
+    except HTTPException:
+        raise
+
+    except SecretPersistenceError:
+        # includes "Secret not found"
+        raise
