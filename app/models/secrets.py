@@ -149,7 +149,7 @@ class DeleteSecretResponse(BaseModel):
     """
     ok: bool = Field(
         ...,
-        description="Indicates whether a secret ws deleted successfully",
+        description="Indicates whether a secret was deleted successfully",
         examples=[True],
     )
     secret_id: UUID = Field(
