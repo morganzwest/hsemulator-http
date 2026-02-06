@@ -7,6 +7,9 @@ from app.db.secrets import insert_secret, update_secret_value, get_secret_by_id,
 from app.models.errors import (
     SecretAlreadyExistsError,
     SecretPersistenceError,
+    SecretNotFoundError,
+    SecretPortalMismatchError,
+    SecretForbiddenError
 )
 from fastapi import HTTPException
 
@@ -122,11 +125,11 @@ def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
         secret = get_secret_by_id(secret_id)
 
         if str(secret["portal_id"]) != str(portal_id):
-            raise HTTPException(status_code=403, detail="Portal mismatch")
+            raise SecretPortalMismatchError()
 
         owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
         if user_id not in owner_ids:
-            raise HTTPException(status_code=403, detail="Forbidden: User is not an owner of the portal")
+            raise SecretForbiddenError("Forbidden: User is not an owner of the portal")
 
         delete_secret_record(secret_id=secret_id)
 

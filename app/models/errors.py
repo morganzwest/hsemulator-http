@@ -24,3 +24,15 @@ class ExecutionNotFoundError(Exception):
     def __init__(self, execution_id: str):
         super().__init__(f"Execution not found: execution_id={execution_id}")
         self.execution_id = execution_id
+
+class SecretNotFoundError(SecretError):
+    def __init__(self, detail: str = "Secret not found"):
+        super().__init__(detail, status.HTTP_404_NOT_FOUND)
+
+class SecretPortalMismatchError(SecretError):
+    def __init__(self, detail: str = "Portal mismatch"):
+        super().__init__(detail, status.HTTP_403_FORBIDDEN)
+
+class SecretForbiddenError(SecretError):
+    def __init__(self, detail: str = "Forbidden"):
+        super().__init__(detail, status.HTTP_403_FORBIDDEN)

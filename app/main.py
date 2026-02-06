@@ -30,6 +30,9 @@ from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.workers.base import run_execution
 from app.models.errors import (
     SecretPersistenceError,
+    SecretPortalMismatchError,
+    SecretForbiddenError,
+    SecretNotFoundError
 )
 from os import getenv
 
@@ -157,8 +160,8 @@ def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
         )
         return DeleteSecretResponse(ok=True, secret_id=secret_id)
 
-    except HTTPException:
-        raise
+    except (SecretNotFoundError, SecretPortalMismatchError, SecretForbiddenError) as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
     except SecretPersistenceError as e:
-        raise HTTPException(status_code=500, detail="Failed to delete secret")
+        raise e
