@@ -3,7 +3,7 @@ import logging
 from uuid import UUID
 from typing import Optional
 from app.db import get_supabase
-from app.models.errors import SecretPersistenceError
+from app.models.errors import SecretPersistenceError, SecretNotFoundError
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -97,16 +97,14 @@ def get_secret_by_id(secret_id: UUID) -> dict:
         )
 
         if not result.data:
-            raise HTTPException(status_code=404, detail="Secret not found")
+            raise SecretNotFoundError()
 
         
         return result.data[0]
 
-    except HTTPException:
+    except (SecretNotFoundError, SecretPersistenceError):
         raise
 
-    except SecretPersistenceError:
-        raise
 
     except Exception:
         logger.exception(
@@ -164,28 +162,23 @@ def update_secret_value(
 def delete_secret_record(*, secret_id: UUID) -> None:
     supabase = get_supabase()
 
+    # Note: Supabase Python client doesn't support chaining `.select()` after `.delete()`.
+    # Existence is validated earlier via get_secret_by_id() in the service layer.
     try:
-        result = (
+        (
             supabase
             .table("secrets")
             .delete()
             .eq("id", str(secret_id))
-            .select("id")
             .execute()
         )
-
-        if not result.data:
-            raise SecretPersistenceError("Secret not found")
-
-    except SecretPersistenceError:
-        raise
-
-    except Exception:
+    except Exception as e:
         logger.exception(
             "Failed to delete secret",
             extra={"secret_id": str(secret_id)},
         )
-        raise SecretPersistenceError("Failed to delete secret")
+        raise SecretPersistenceError(f"Failed to delete secret: {e!r}")
+
 
 def get_portal_owner_profile_ids(*, portal_id: UUID) -> list[UUID]:
     supabase = get_supabase()
