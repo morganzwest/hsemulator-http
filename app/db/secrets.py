@@ -170,6 +170,7 @@ def delete_secret_record(*, secret_id: UUID) -> None:
             .table("secrets")
             .delete()
             .eq("id", str(secret_id))
+            .select("id")
             .execute()
         )
 
