@@ -103,26 +103,21 @@ def update_secret(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Unhandled error during secret update")
-
-
-# def delete_secret(*, secret_id: UUID) -> None:
-#     try:
-#         get_secret_by_id(secret_id)
-
-#         delete_secret_record(secret_id=secret_id)
-
-#     except SecretPersistenceError:
-#         raise
-
-#     except Exception:
-#         logger.exception(
-#             "Unhandled error during secret delete",
-#             extra={"secret_id": str(secret_id)},
-#         )
-#         raise SecretPersistenceError("Unhandled error during secret delete")
     
 
 def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
+    """Deletes a secret after validating portal ownership and user authorisation.
+
+    This function performs layered authorisation checks before deletion:
+
+    1. Ensures the secret exists.
+    2. Confirms the provided portal_id matches the secret's portal_id.
+    3. Verifies the provided user_id belongs to an owner of the portal.
+
+    Raises:
+        HTTPException: If the portal does not match or the user is not authorised.
+        SecretPersistenceError: If the secret cannot be retrieved or deleted."""
+    
     try:
         secret = get_secret_by_id(secret_id)
 
