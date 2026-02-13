@@ -524,10 +524,21 @@ def _write_result(obj):
 _real_import = builtins.__import__
 
 def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+    # Allow relative imports (critical for packages like requests → urllib3)
+    if level and globals:
+        pkg = globals.get("__package__")
+        if pkg:
+            top = pkg.split(".", 1)[0]
+            if top in ALLOW_EXTRA or top in STDLIB:
+                return _real_import(name, globals, locals, fromlist, level)
+
+    # Normal absolute import check
     top = name.split(".", 1)[0]
     if top in STDLIB or top in ALLOW_EXTRA:
         return _real_import(name, globals, locals, fromlist, level)
-    raise ImportError(f"Import not allowed: {{name}}")
+
+    raise ImportError(f"Import not allowed: {name}")
+
 
 builtins.__import__ = _restricted_import
 
