@@ -537,7 +537,8 @@ def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     if top in STDLIB or top in ALLOW_EXTRA:
         return _real_import(name, globals, locals, fromlist, level)
 
-    raise ImportError(f"Import not allowed: {name}")
+   raise ImportError("Import not allowed: %s" % name)
+
 
 
 builtins.__import__ = _restricted_import
