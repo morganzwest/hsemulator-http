@@ -24,9 +24,20 @@ from app.models.secrets import (
     DeleteSecretResponse,
     DeleteSecretRequest
 )
+from app.models.cicd import (
+    CicdPromoteRequest,
+    CicdPromoteResponse
+)
 
 from app.services.secret_service import create_secret, update_secret, delete_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
+from app.services.cicd_service import (
+    promote_to_hubspot,
+    CICDServiceError,
+    SecretDecryptionError,
+    ActionNotManagedError,
+    NoUpdateNeededError
+)
 from app.workers.base import run_execution
 from app.models.errors import (
     SecretPersistenceError,
@@ -144,6 +155,62 @@ def create_secret_endpoint(req: CreateSecretRequest):
 def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     update_secret(secret_id=secret_id, value=req.value)
     return UpdateSecretResponse(ok=True, secret_id=secret_id)
+
+
+@app.post(
+    "/cicd/promote",
+    response_model=CicdPromoteResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False):
+    """
+    Promote source code to a HubSpot workflow action.
+    
+    This endpoint allows CI/CD systems to update HubSpot workflow actions
+    by providing source code and a CICD secret ID (containing the HubSpot token).
+    
+    Args:
+        req: Promotion request with source code, secret ID, workflow ID, and search key
+        force: Force update even if action has no hash marker (default: False)
+        dry_run: Perform dry run without making changes (default: False)
+    """
+    try:
+        result = await promote_to_hubspot(
+            source_code=req.source_code,
+            cicd_secret_id=req.cicd_secret_id,
+            workflow_id=req.workflow_id,
+            search_key=req.search_key,
+            force=force,
+            dry_run=dry_run,
+        )
+        
+        return CicdPromoteResponse(
+            ok=result["ok"],
+            workflow_id=result["workflow_id"],
+            new_hash=result["new_hash"],
+            revision_id=result.get("revision_id"),
+            action_index=result.get("action_index"),
+        )
+        
+    except NoUpdateNeededError as e:
+        # Return success response for no-op updates
+        return CicdPromoteResponse(
+            ok=True,
+            workflow_id=req.workflow_id,
+            new_hash=str(e).split(" ")[-1],  # Extract hash from error message
+            revision_id=None,
+            action_index=None,
+        )
+        
+    except (SecretDecryptionError, ActionNotManagedError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except CICDServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in CICD promote")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete(

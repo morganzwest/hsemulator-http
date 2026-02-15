@@ -1,0 +1,251 @@
+import hashlib
+import logging
+from typing import Optional, Dict, Any, List
+import json
+
+import httpx
+
+from app.models.errors import SecretPersistenceError
+
+logger = logging.getLogger(__name__)
+
+HUBSPOT_BASE_URL = "https://api.hubapi.com"
+
+
+class HubSpotServiceError(Exception):
+    """Base exception for HubSpot service errors"""
+    pass
+
+
+class WorkflowNotFoundError(HubSpotServiceError):
+    """Raised when a workflow is not found"""
+    pass
+
+
+class ActionNotFoundError(HubSpotServiceError):
+    """Raised when the target action is not found"""
+    pass
+
+
+class HubSpotAPIError(HubSpotServiceError):
+    """Raised when HubSpot API returns an error"""
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def get_workflow(token: str, workflow_id: str) -> Dict[str, Any]:
+    """Fetch a workflow from HubSpot API"""
+    url = f"{HUBSPOT_BASE_URL}/automation/v4/flows/{workflow_id}"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=headers)
+        
+        if response.status_code == 404:
+            raise WorkflowNotFoundError(f"Workflow {workflow_id} not found")
+        elif not response.is_success:
+            raise HubSpotAPIError(
+                f"HubSpot GET workflow failed: {response.status_code} {response.text}",
+                response.status_code
+            )
+        
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
+
+
+def find_action_by_secret(workflow: Dict[str, Any], search_key: str) -> int:
+    """Find the target action index by searching for the secret name"""
+    actions = workflow.get("actions", [])
+    if not isinstance(actions, list):
+        raise HubSpotServiceError("Workflow missing 'actions' array")
+    
+    matches: List[int] = []
+    
+    for idx, action in enumerate(actions):
+        if action.get("type") != "CUSTOM_CODE":
+            continue
+            
+        secret_names = action.get("secretNames", [])
+        if not isinstance(secret_names, list):
+            continue
+            
+        if search_key in secret_names:
+            matches.append(idx)
+    
+    if not matches:
+        raise ActionNotFoundError(
+            f"No CUSTOM_CODE action found with secretNames containing '{search_key}'"
+        )
+    
+    if len(matches) != 1:
+        raise HubSpotServiceError(
+            f"Search key '{search_key}' matched {len(matches)} actions. Expected exactly 1 match."
+        )
+    
+    return matches[0]
+
+
+def get_action_source_code(workflow: Dict[str, Any], action_index: int) -> str:
+    """Extract source code from a specific action"""
+    actions = workflow.get("actions", [])
+    if not isinstance(actions, list):
+        raise HubSpotServiceError("Workflow missing 'actions' array")
+    
+    if action_index >= len(actions):
+        raise HubSpotServiceError(f"Action index {action_index} out of bounds")
+    
+    action = actions[action_index]
+    source_code = action.get("sourceCode")
+    
+    if not isinstance(source_code, str):
+        raise HubSpotServiceError("Target action missing 'sourceCode'")
+    
+    return source_code
+
+
+def generate_source_hash(source_code: str) -> str:
+    """Generate SHA256 hash of canonical source code"""
+    canonical = strip_hash_marker(source_code)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def inject_hash_marker(source_code: str, hash_value: str) -> str:
+    """Inject hash marker at the top of the source code"""
+    # Detect language style for comment format
+    is_pythonish = ("def " in source_code or "import " in source_code or 
+                   "from " in source_code)
+    
+    comment = f"# hsemulator-sha: {hash_value}\n" if is_pythonish else f"// hsemulator-sha: {hash_value}\n"
+    
+    # Check if marker already exists
+    existing_hash = extract_hash_marker(source_code)
+    if existing_hash == hash_value:
+        return source_code
+    
+    # Replace existing marker or add new one
+    if existing_hash:
+        return replace_hash_marker(source_code, comment)
+    
+    return comment + source_code
+
+
+def extract_hash_marker(source_code: str) -> Optional[str]:
+    """Extract hash marker from source code"""
+    for line in source_code.split('\n')[:10]:
+        line = line.strip()
+        if line.startswith("# hsemulator-sha: "):
+            return line[len("# hsemulator-sha: "):].strip()
+        elif line.startswith("// hsemulator-sha: "):
+            return line[len("// hsemulator-sha: "):].strip()
+    return None
+
+
+def strip_hash_marker(source_code: str) -> str:
+    """Remove hash marker from source code"""
+    lines = source_code.split('\n')
+    filtered_lines = [
+        line for line in lines 
+        if not (line.strip().startswith("# hsemulator-sha: ") or 
+                line.strip().startswith("// hsemulator-sha: "))
+    ]
+    return '\n'.join(filtered_lines)
+
+
+def replace_hash_marker(source_code: str, new_marker: str) -> str:
+    """Replace existing hash marker with new one"""
+    lines = source_code.split('\n')
+    result_lines = []
+    replaced = False
+    
+    for i, line in enumerate(lines):
+        if not replaced and i < 10:
+            stripped = line.strip()
+            if stripped.startswith("# hsemulator-sha: ") or stripped.startswith("// hsemulator-sha: "):
+                result_lines.append(new_marker.rstrip())
+                replaced = True
+                continue
+        result_lines.append(line)
+    
+    return '\n'.join(result_lines)
+
+
+def build_updated_workflow_payload(
+    workflow: Dict[str, Any], 
+    action_index: int, 
+    new_source: str,
+    runtime_override: Optional[str] = None
+) -> Dict[str, Any]:
+    """Build the payload for updating a workflow"""
+    # Clone workflow to avoid modifying original
+    updated_workflow = workflow.copy()
+    actions = updated_workflow.get("actions", [])
+    
+    if not isinstance(actions, list) or action_index >= len(actions):
+        raise HubSpotServiceError(f"Invalid action index {action_index}")
+    
+    # Update the action
+    action = actions[action_index].copy()
+    action["sourceCode"] = new_source
+    
+    if runtime_override:
+        action["runtime"] = runtime_override
+    
+    actions[action_index] = action
+    updated_workflow["actions"] = actions
+    
+    # Build sanitized payload with required fields
+    payload = {}
+    
+    required_fields = [
+        "revisionId", "type", "name", "isEnabled", "actions", "startActionId"
+    ]
+    
+    for field in required_fields:
+        if field not in updated_workflow:
+            raise HubSpotServiceError(f"Workflow missing required field '{field}'")
+        payload[field] = updated_workflow[field]
+    
+    # Include optional fields if present
+    optional_fields = [
+        "enrollmentCriteria", "enrollmentSchedule", "goalFilterBranch",
+        "suppressionListIds", "timeWindows", "blockedDates",
+        "unEnrollmentSetting", "customProperties", "canEnrollFromSalesforce",
+        "description"
+    ]
+    
+    for field in optional_fields:
+        if field in updated_workflow:
+            payload[field] = updated_workflow[field]
+    
+    return payload
+
+
+async def put_workflow(token: str, workflow_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Update a workflow in HubSpot API"""
+    url = f"{HUBSPOT_BASE_URL}/automation/v4/flows/{workflow_id}"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.put(url, headers=headers, json=payload)
+        
+        if not response.is_success:
+            raise HubSpotAPIError(
+                f"HubSpot PUT workflow failed: {response.status_code} {response.text}",
+                response.status_code
+            )
+        
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
