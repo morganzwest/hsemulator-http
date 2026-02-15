@@ -4,6 +4,7 @@ from fastapi import Response
 import asyncio
 import logging
 from uuid import UUID
+from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,13 +27,15 @@ from app.models.secrets import (
 )
 from app.models.cicd import (
     CicdPromoteRequest,
-    CicdPromoteResponse
+    CicdPromoteResponse,
+    WorkflowStatusResponse
 )
 
 from app.services.secret_service import create_secret, update_secret, delete_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.cicd_service import (
     promote_to_hubspot,
+    check_workflow_status,
     CICDServiceError,
     SecretDecryptionError,
     ActionNotManagedError,
@@ -210,6 +213,52 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
         
     except Exception as e:
         logger.exception("Unexpected error in CICD promote")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get(
+    "/cicd/workflow/{workflow_id}/status",
+    response_model=WorkflowStatusResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def check_workflow_status_endpoint(
+    workflow_id: str,
+    cicd_secret_id: UUID,
+    search_key: str,
+    source_code: Optional[str] = None,
+):
+    """
+    Check the status of a workflow action and its synchronization state.
+    
+    This endpoint helps with CICD onboarding by showing whether an action
+    is managed by hsemulator, if it's in sync with source code, and provides
+    recommendations for next steps.
+    
+    Args:
+        workflow_id: HubSpot workflow ID to check
+        cicd_secret_id: ID of the CICD-scoped secret containing the HubSpot token
+        search_key: Secret name to identify the target action within the workflow
+        source_code: Optional source code to compare against the current action
+    """
+    # Validate input parameters
+    if not workflow_id or not workflow_id.strip():
+        raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
+    
+    if not search_key or not search_key.strip():
+        raise HTTPException(status_code=400, detail="search_key cannot be empty")
+    
+    try:
+        result = await check_workflow_status(
+            cicd_secret_id=cicd_secret_id,
+            workflow_id=workflow_id.strip(),
+            search_key=search_key.strip(),
+            source_code=source_code,
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.exception("Unexpected error in workflow status check")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

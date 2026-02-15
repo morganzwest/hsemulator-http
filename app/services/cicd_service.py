@@ -1,5 +1,6 @@
 import logging
 from uuid import UUID
+from typing import Optional
 
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.hubspot_service import (
@@ -16,6 +17,7 @@ from app.services.hubspot_service import (
     HubSpotAPIError,
     HubSpotServiceError,
 )
+from app.models.cicd import WorkflowStatusResponse, WorkflowStatus
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +127,11 @@ async def promote_to_hubspot(
     if not existing_hash and force:
         logger.warning(f"Overwriting action with no hash marker due to force=True")
     
-    logger.info(f"Updating action: {existing_hash or 'none'} -> {new_hash}")
+    logger.info(f"Updating action in workflow {workflow_id} at index {action_index}")
+    if existing_hash:
+        logger.debug(f"Existing hash: {existing_hash[:8]}..., new hash: {new_hash[:8]}...")
+    else:
+        logger.debug(f"Adding new action with hash: {new_hash[:8]}...")
     
     # Build updated workflow payload
     try:
@@ -160,3 +166,156 @@ async def promote_to_hubspot(
         "action_index": action_index,
         "existing_hash": existing_hash,
     }
+
+
+async def check_workflow_status(
+    cicd_secret_id: UUID,
+    workflow_id: str,
+    search_key: str,
+    source_code: Optional[str] = None,
+) -> WorkflowStatusResponse:
+    """
+    Check the status of a workflow action and its synchronization state.
+    
+    Args:
+        cicd_secret_id: ID of the CICD secret containing HubSpot token
+        workflow_id: HubSpot workflow ID to check
+        search_key: Secret name to identify the target action
+        source_code: Optional source code to compare against current action
+    
+    Returns:
+        WorkflowStatusResponse with detailed status information
+    """
+    # Generate hash for provided source code (if any) - do this once
+    source_hash = generate_source_hash(source_code) if source_code else None
+    
+    # Try to decrypt the CICD secret
+    try:
+        token = await decrypt_cicd_secret(cicd_secret_id)
+    except SecretDecryptionError as e:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="access_denied",
+            action_found=False,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=None,
+            recommendation="Access denied: Invalid credentials or permissions",
+            can_promote=False,
+        )
+    
+    # Try to fetch the workflow
+    try:
+        workflow = await get_workflow(token, workflow_id)
+    except WorkflowNotFoundError:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="workflow_not_found",
+            action_found=False,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=None,
+            recommendation="Workflow not found. Check the workflow ID and permissions.",
+            can_promote=False,
+        )
+    except HubSpotAPIError as e:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="access_denied",
+            action_found=False,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=None,
+            recommendation="API access denied. Check token permissions and workflow access.",
+            can_promote=False,
+        )
+    
+    # Try to find the target action
+    try:
+        action_index = find_action_by_secret(workflow, search_key)
+        action_found = True
+    except ActionNotFoundError:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="not_found",
+            action_found=False,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=None,
+            recommendation=f"Action with secret '{search_key}' not found in workflow. Check the search key.",
+            can_promote=False,
+        )
+    except HubSpotServiceError as e:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="access_denied",
+            action_found=False,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=None,
+            recommendation="Service error occurred while accessing workflow.",
+            can_promote=False,
+        )
+    
+    # Get current action source code
+    try:
+        current_source = get_action_source_code(workflow, action_index)
+    except HubSpotServiceError as e:
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            search_key=search_key,
+            status="access_denied",
+            action_found=action_found,
+            has_hash_marker=False,
+            current_hash=None,
+            source_hash=source_hash,
+            action_index=action_index,
+            recommendation="Service error occurred while accessing action source.",
+            can_promote=False,
+        )
+    
+    # Extract current hash and check if action is managed
+    current_hash = extract_hash_marker(current_source)
+    has_hash_marker = current_hash is not None
+    
+    # Determine status and recommendation
+    if not has_hash_marker:
+        status = "unmanaged"
+        recommendation = "Action exists but is not managed by hsemulator (no hash marker). Use POST /cicd/promote with force=True to take ownership."
+        can_promote = True
+    elif source_code and current_hash != source_hash:
+        status = "out_of_sync"
+        recommendation = "Action is out of sync with provided source code. Use POST /cicd/promote to update."
+        can_promote = True
+    elif source_code and current_hash == source_hash:
+        status = "in_sync"
+        recommendation = "Action is in sync with provided source code. No update needed."
+        can_promote = True
+    else:
+        # Has hash marker but no source code provided for comparison
+        status = "managed_unknown_sync"
+        recommendation = "Action is managed by hsemulator and has a hash marker. Provide source_code to check if it's in sync."
+        can_promote = True
+    
+    return WorkflowStatusResponse(
+        workflow_id=workflow_id,
+        search_key=search_key,
+        status=status,
+        action_found=action_found,
+        has_hash_marker=has_hash_marker,
+        current_hash=current_hash,
+        source_hash=source_hash,
+        action_index=action_index,
+        recommendation=recommendation,
+        can_promote=can_promote,
+    )

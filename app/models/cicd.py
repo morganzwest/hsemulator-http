@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Literal
 
 
 class CicdPromoteRequest(BaseModel):
@@ -79,3 +79,81 @@ class WorkflowAction(BaseModel):
     source_code: Optional[str] = None
     secret_names: Optional[list[str]] = None
     runtime: Optional[str] = None
+
+
+# Workflow Status Check Models
+
+WorkflowStatus = Literal[
+    "in_sync",
+    "out_of_sync", 
+    "unmanaged",
+    "not_found",
+    "workflow_not_found",
+    "access_denied",
+    "managed_unknown_sync"
+]
+
+
+class WorkflowStatusResponse(BaseModel):
+    """
+    Response containing workflow action status and synchronization information.
+    """
+    workflow_id: str = Field(
+        ...,
+        description="ID of the checked workflow",
+        examples=["123456789"],
+    )
+    
+    search_key: str = Field(
+        ...,
+        description="Secret name that was searched for",
+        examples=["MY_ACTION_SECRET"],
+    )
+    
+    status: WorkflowStatus = Field(
+        ...,
+        description="Current synchronization status of the action",
+        examples=["out_of_sync"],
+    )
+    
+    action_found: bool = Field(
+        ...,
+        description="Whether the target action was found in the workflow",
+        examples=[True],
+    )
+    
+    has_hash_marker: bool = Field(
+        ...,
+        description="Whether the action has an hsemulator hash marker",
+        examples=[True],
+    )
+    
+    current_hash: Optional[str] = Field(
+        None,
+        description="Hash extracted from the current action source code",
+        examples=["abc123..."],
+    )
+    
+    source_hash: Optional[str] = Field(
+        None,
+        description="Hash of the provided source code (if any)",
+        examples=["def456..."],
+    )
+    
+    action_index: Optional[int] = Field(
+        None,
+        description="Index of the action within the workflow",
+        examples=[2],
+    )
+    
+    recommendation: str = Field(
+        ...,
+        description="Recommended next steps based on the status",
+        examples=["Action is out of sync. Use POST /cicd/promote to update."],
+    )
+    
+    can_promote: bool = Field(
+        ...,
+        description="Whether the action can be promoted using the CICD endpoint",
+        examples=[True],
+    )
