@@ -285,15 +285,18 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
     
     This endpoint scans all workflows in a portal to find custom code actions
     that can be managed by the CICD system. It handles pagination automatically
-    and prints details of each custom code action found (Phase 1).
+    and can optionally process and store actions in the database.
     
     Args:
-        req: Discovery request containing secret_id and portal_id
+        req: Discovery request containing all required parameters
     """
     try:
         result = await discover_workflows(
             secret_id=req.secret_id,
             portal_id=req.portal_id,
+            owner_id=req.owner_id,
+            portal_id_int=req.portal_id_int,
+            process_actions=req.process_actions,
         )
         
         return result

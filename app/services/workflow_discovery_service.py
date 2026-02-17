@@ -1,7 +1,7 @@
 import logging
-from uuid import UUID
-from typing import List, Dict, Any
 import os
+from uuid import UUID
+from typing import List, Dict, Any, Optional
 
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.hubspot_service import (
@@ -11,6 +11,11 @@ from app.services.hubspot_service import (
     HubSpotAPIError,
     WorkflowNotFoundError,
     HubSpotServiceError,
+)
+from app.services.action_processing_service import (
+    process_custom_action,
+    ActionProcessingError,
+    ActionAlreadyExistsError,
 )
 from app.db.secrets import verify_cicd_secret
 from app.models.workflows import WorkflowDiscoveryResponse, CustomCodeAction
@@ -208,13 +213,16 @@ def find_custom_code_actions(workflow: Dict[str, Any]) -> List[Dict[str, Any]]:
     return custom_actions
 
 
-async def discover_workflows(secret_id: UUID, portal_id: UUID) -> WorkflowDiscoveryResponse:
+async def discover_workflows(secret_id: UUID, portal_id: UUID, owner_id: UUID, portal_id_int: int, process_actions: bool = True) -> WorkflowDiscoveryResponse:
     """
     Discover all workflows with custom code actions in a portal.
     
     Args:
         secret_id: ID of the CICD secret containing HubSpot token
         portal_id: Portal ID to scan
+        owner_id: UUID of the action owner
+        portal_id_int: Portal ID as integer for event data
+        process_actions: Whether to process and store actions (default: True)
         
     Returns:
         WorkflowDiscoveryResponse with discovered actions
@@ -295,25 +303,82 @@ async def discover_workflows(secret_id: UUID, portal_id: UUID) -> WorkflowDiscov
             custom_actions = find_custom_code_actions(workflow_details)
             
             for action in custom_actions:
-                # Create simplified CustomCodeAction object
+                # Create basic CustomCodeAction object first
                 custom_action = CustomCodeAction(
                     name=workflow_details.get("name", "Unknown Workflow"),
                     id=workflow_id,
                     language=action.get("runtime"),
                     action_id=action.get("actionId", "unknown"),
                 )
-                custom_code_actions.append(custom_action)
                 
-                # Phase 1: Print custom code action details
-                print(f"\n=== CUSTOM CODE ACTION FOUND ===")
-                print(f"Workflow ID: {workflow_id}")
-                print(f"Workflow Name: {workflow_details.get('name', 'Unknown')}")
-                print(f"Action ID: {action.get('actionId', 'unknown')}")
-                print(f"Action Type: {action.get('type', 'CUSTOM_CODE')}")
-                print(f"Language: {action.get('runtime', 'unknown')}")
-                print(f"Source Code:")
-                print(action.get("sourceCode", ""))
-                print("=" * 30)
+                if process_actions:
+                    try:
+                        # Process the action (create database record, store files, etc.)
+                        result = await process_custom_action(
+                            workflow_name=workflow_details.get("name", "Unknown Workflow"),
+                            workflow_id=workflow_id,
+                            action_id=action.get("actionId", "unknown"),
+                            language=action.get("runtime", "unknown"),
+                            source_code=action.get("sourceCode", ""),
+                            portal_id=portal_id,
+                            owner_id=owner_id,
+                            portal_id_int=portal_id_int,
+                        )
+                        
+                        # Update the custom action with processing results
+                        try:
+                            custom_action.database_action_id = UUID(result["action_id"])
+                        except (ValueError, TypeError) as uuid_error:
+                            custom_action.processed = False
+                            custom_action.error = f"Invalid action ID format: {uuid_error}"
+                            logger.error(f"Invalid UUID format for action ID: {result.get('action_id')}")
+                            continue
+                        
+                        custom_action.cicd_search_token = result["cicd_search_token"]
+                        custom_action.filepath = result["filepath"]
+                        custom_action.event_filepath = result["event_filepath"]
+                        custom_action.input_fields = result["input_fields"]
+                        custom_action.processed = True
+                        
+                        logger.info(
+                            f"Successfully processed action from workflow {workflow_id}",
+                            extra={
+                                "workflow_id": workflow_id,
+                                "action_id": result["action_id"],
+                                "cicd_token": result["cicd_search_token"],
+                            }
+                        )
+                        
+                    except (ActionProcessingError, ActionAlreadyExistsError) as e:
+                        custom_action.processed = False
+                        custom_action.error = str(e)
+                        if isinstance(e, ActionAlreadyExistsError):
+                            logger.info(f"Action already exists for workflow {workflow_id}: {e}")
+                        else:
+                            logger.error(f"Failed to process action from workflow {workflow_id}: {e}")
+                        
+                    except (ValueError, TypeError) as e:
+                        custom_action.processed = False
+                        custom_action.error = f"Data validation error: {str(e)}"
+                        logger.error(f"Validation error processing action from workflow {workflow_id}: {e}")
+                        
+                    except Exception as e:
+                        custom_action.processed = False
+                        custom_action.error = f"Unexpected error: {str(e)}"
+                        logger.exception(f"Unexpected error processing action from workflow {workflow_id}")
+                else:
+                    # Legacy behavior: just print the action details
+                    print(f"\n=== CUSTOM CODE ACTION FOUND ===")
+                    print(f"Workflow ID: {workflow_id}")
+                    print(f"Workflow Name: {workflow_details.get('name', 'Unknown')}")
+                    print(f"Action ID: {action.get('actionId', 'unknown')}")
+                    print(f"Action Type: {action.get('type', 'CUSTOM_CODE')}")
+                    print(f"Language: {action.get('runtime', 'unknown')}")
+                    print(f"Source Code:")
+                    print(action.get("sourceCode", ""))
+                    print("=" * 30)
+                
+                custom_code_actions.append(custom_action)
                 
         except Exception as e:
             logger.warning(f"Unexpected error processing workflow {workflow_id}: {e}")
