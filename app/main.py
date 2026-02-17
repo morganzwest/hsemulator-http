@@ -30,6 +30,10 @@ from app.models.cicd import (
     CicdPromoteResponse,
     WorkflowStatusResponse
 )
+from app.models.workflows import (
+    WorkflowDiscoveryRequest,
+    WorkflowDiscoveryResponse
+)
 
 from app.services.secret_service import create_secret, update_secret, delete_secret
 from app.services.secret_decrypt_service import decrypt_secret_for_test
@@ -41,6 +45,11 @@ from app.services.cicd_service import (
     ActionNotManagedError,
     NoUpdateNeededError
 )
+from app.services.workflow_discovery_service import (
+    discover_workflows,
+    WorkflowDiscoveryError,
+    SecretVerificationError
+)
 from app.workers.base import run_execution
 from app.models.errors import (
     SecretPersistenceError,
@@ -49,6 +58,9 @@ from app.models.errors import (
     SecretNotFoundError
 )
 from os import getenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 IS_CLOUD_RUN = bool(getenv("K_SERVICE"))
 
@@ -259,6 +271,44 @@ async def check_workflow_status_endpoint(
         
     except Exception as e:
         logger.exception("Unexpected error in workflow status check")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post(
+    "/workflows/discover",
+    response_model=WorkflowDiscoveryResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
+    """
+    Discover HubSpot workflows with custom code actions in a portal.
+    
+    This endpoint scans all workflows in a portal to find custom code actions
+    that can be managed by the CICD system. It handles pagination automatically
+    and can optionally process and store actions in the database.
+    
+    Args:
+        req: Discovery request containing all required parameters
+    """
+    try:
+        result = await discover_workflows(
+            secret_id=req.secret_id,
+            portal_id=req.portal_id,
+            owner_id=req.owner_id,
+            portal_id_int=req.portal_id_int,
+            process_actions=req.process_actions,
+        )
+        
+        return result
+        
+    except SecretVerificationError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+        
+    except WorkflowDiscoveryError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in workflow discovery")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
