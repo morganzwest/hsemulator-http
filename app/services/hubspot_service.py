@@ -60,6 +60,63 @@ async def get_workflow(token: str, workflow_id: str) -> Dict[str, Any]:
             raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
 
 
+async def get_workflows_list(token: str, limit: int = 100, after: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch a list of workflows from HubSpot API with pagination support"""
+    url = f"{HUBSPOT_BASE_URL}/automation/v4/flows"
+    params = {"limit": str(limit)}
+    
+    if after:
+        params["after"] = after
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=headers, params=params)
+        
+        if not response.is_success:
+            raise HubSpotAPIError(
+                f"HubSpot GET workflows list failed: {response.status_code} {response.text}",
+                response.status_code
+            )
+        
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
+
+
+async def get_workflows_batch_read(token: str, workflow_ids: List[str]) -> Dict[str, Any]:
+    """Fetch multiple workflows in a single batch request"""
+    url = f"{HUBSPOT_BASE_URL}/automation/v4/flows/batch/read"
+    
+    # Prepare inputs for batch request
+    inputs = [{"flowId": flow_id, "type": "FLOW_ID"} for flow_id in workflow_ids]
+    
+    payload = {"inputs": inputs}
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for batch
+        response = await client.post(url, headers=headers, json=payload)
+        
+        if not response.is_success:
+            raise HubSpotAPIError(
+                f"HubSpot batch read workflows failed: {response.status_code} {response.text}",
+                response.status_code
+            )
+        
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
+
+
 def find_action_by_secret(workflow: Dict[str, Any], search_key: str) -> int:
     """Find the target action index by searching for the secret name"""
     actions = workflow.get("actions", [])
