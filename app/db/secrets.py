@@ -74,7 +74,7 @@ def insert_secret(
                 "portal_id": str(portal_id),
                 "action_id": str(action_id) if action_id else None,
                 "scope": scope,
-                "name": name,
+                "secret_name": name,
             },
         )
         raise SecretPersistenceError("Failed to insert secret")
@@ -99,12 +99,10 @@ def get_secret_by_id(secret_id: UUID) -> dict:
         if not result.data:
             raise SecretNotFoundError()
 
-        
         return result.data[0]
 
     except (SecretNotFoundError, SecretPersistenceError):
         raise
-
 
     except Exception:
         logger.exception(
@@ -112,7 +110,6 @@ def get_secret_by_id(secret_id: UUID) -> dict:
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Failed to fetch secret")
-
 
 
 def update_secret_value(
@@ -204,14 +201,14 @@ def get_portal_owner_profile_ids(*, portal_id: UUID) -> list[UUID]:
 
 def verify_cicd_secret(secret_id: UUID, portal_id: UUID) -> bool:
     """Verify that a CICD secret exists and is mapped to the specified portal.
-    
+
     Args:
         secret_id: The secret ID to verify
         portal_id: The portal ID the secret should belong to
-        
+
     Returns:
         True if exactly one CICD secret exists for the given secret_id and portal_id
-        
+
     Raises:
         SecretNotFoundError: If no secret found
         SecretPersistenceError: If database error occurs
@@ -247,4 +244,3 @@ def verify_cicd_secret(secret_id: UUID, portal_id: UUID) -> bool:
             },
         )
         raise SecretPersistenceError("Failed to verify CICD secret")
-

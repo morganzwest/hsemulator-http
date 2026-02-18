@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 def generate_cicd_search_token() -> str:
     """Generate a random CICD search token in format CI_CD_<8 alpha chars>"""
-    random_chars = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(8))
+    random_chars = ''.join(secrets.choice(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(8))
     return f"CI_CD_{random_chars}"
 
 
@@ -32,14 +33,15 @@ def create_action(
 ) -> Action:
     """Create a new action record in the database"""
     supabase = get_supabase()
-    
+
     # Generate CICD search token
     cicd_search_token = generate_cicd_search_token()
-    
+
     # Validate language
     if language not in ['python', 'javascript']:
-        raise ValueError(f"Invalid language: {language}. Must be 'python' or 'javascript'")
-    
+        raise ValueError(
+            f"Invalid language: {language}. Must be 'python' or 'javascript'")
+
     payload = {
         "owner_id": str(owner_id),
         "name": name,
@@ -52,21 +54,22 @@ def create_action(
         "source": source,
         "cicd_search_token": cicd_search_token,
     }
-    
+
     if workflow_id:
         payload["workflow_id"] = workflow_id
-    
+
     if template_id:
         payload["template_id"] = str(template_id)
-    
+
     try:
         result = supabase.table("actions").insert(payload).execute()
-        
+
         if not result.data or not isinstance(result.data, list):
-            raise SecretPersistenceError("Action insert succeeded but no data was returned")
-        
+            raise SecretPersistenceError(
+                "Action insert succeeded but no data was returned")
+
         action_data = result.data[0]
-        
+
         return Action(
             id=UUID(action_data["id"]),
             owner_id=UUID(action_data["owner_id"]),
@@ -78,13 +81,14 @@ def create_action(
             is_active=action_data["is_active"],
             created_at=datetime.fromisoformat(action_data["created_at"]),
             updated_at=datetime.fromisoformat(action_data["updated_at"]),
-            template_id=UUID(action_data["template_id"]) if action_data.get("template_id") else None,
+            template_id=UUID(action_data["template_id"]) if action_data.get(
+                "template_id") else None,
             portal_id=UUID(action_data["portal_id"]),
             workflow_id=action_data.get("workflow_id"),
             source=action_data["source"],
             cicd_search_token=action_data.get("cicd_search_token"),
         )
-        
+
     except ValueError:
         raise
     except Exception:
@@ -92,7 +96,7 @@ def create_action(
             "Failed to create action",
             extra={
                 "owner_id": str(owner_id),
-                "name": name,
+                "action_name": name,
                 "portal_id": str(portal_id),
                 "language": language,
             },
@@ -103,7 +107,7 @@ def create_action(
 def get_action_by_id(action_id: UUID) -> Optional[Action]:
     """Get an action by its ID"""
     supabase = get_supabase()
-    
+
     try:
         result = (
             supabase
@@ -112,12 +116,12 @@ def get_action_by_id(action_id: UUID) -> Optional[Action]:
             .eq("id", str(action_id))
             .execute()
         )
-        
+
         if not result.data:
             return None
-        
+
         action_data = result.data[0]
-        
+
         return Action(
             id=UUID(action_data["id"]),
             owner_id=UUID(action_data["owner_id"]),
@@ -129,13 +133,14 @@ def get_action_by_id(action_id: UUID) -> Optional[Action]:
             is_active=action_data["is_active"],
             created_at=datetime.fromisoformat(action_data["created_at"]),
             updated_at=datetime.fromisoformat(action_data["updated_at"]),
-            template_id=UUID(action_data["template_id"]) if action_data.get("template_id") else None,
+            template_id=UUID(action_data["template_id"]) if action_data.get(
+                "template_id") else None,
             portal_id=UUID(action_data["portal_id"]),
             workflow_id=action_data.get("workflow_id"),
             source=action_data["source"],
             cicd_search_token=action_data.get("cicd_search_token"),
         )
-        
+
     except Exception:
         logger.exception(
             "Failed to fetch action",
@@ -147,7 +152,7 @@ def get_action_by_id(action_id: UUID) -> Optional[Action]:
 def get_actions_by_portal(portal_id: UUID) -> List[Action]:
     """Get all actions for a specific portal"""
     supabase = get_supabase()
-    
+
     try:
         result = (
             supabase
@@ -156,7 +161,7 @@ def get_actions_by_portal(portal_id: UUID) -> List[Action]:
             .eq("portal_id", str(portal_id))
             .execute()
         )
-        
+
         actions = []
         for action_data in result.data or []:
             actions.append(Action(
@@ -170,15 +175,16 @@ def get_actions_by_portal(portal_id: UUID) -> List[Action]:
                 is_active=action_data["is_active"],
                 created_at=datetime.fromisoformat(action_data["created_at"]),
                 updated_at=datetime.fromisoformat(action_data["updated_at"]),
-                template_id=UUID(action_data["template_id"]) if action_data.get("template_id") else None,
+                template_id=UUID(action_data["template_id"]) if action_data.get(
+                    "template_id") else None,
                 portal_id=UUID(action_data["portal_id"]),
                 workflow_id=action_data.get("workflow_id"),
                 source=action_data["source"],
                 cicd_search_token=action_data.get("cicd_search_token"),
             ))
-        
+
         return actions
-        
+
     except Exception:
         logger.exception(
             "Failed to fetch actions by portal",
@@ -190,7 +196,7 @@ def get_actions_by_portal(portal_id: UUID) -> List[Action]:
 def get_action_by_cicd_token(cicd_search_token: str) -> Optional[Action]:
     """Get an action by its CICD search token"""
     supabase = get_supabase()
-    
+
     try:
         result = (
             supabase
@@ -199,12 +205,12 @@ def get_action_by_cicd_token(cicd_search_token: str) -> Optional[Action]:
             .eq("cicd_search_token", cicd_search_token)
             .execute()
         )
-        
+
         if not result.data:
             return None
-        
+
         action_data = result.data[0]
-        
+
         return Action(
             id=UUID(action_data["id"]),
             owner_id=UUID(action_data["owner_id"]),
@@ -216,13 +222,14 @@ def get_action_by_cicd_token(cicd_search_token: str) -> Optional[Action]:
             is_active=action_data["is_active"],
             created_at=datetime.fromisoformat(action_data["created_at"]),
             updated_at=datetime.fromisoformat(action_data["updated_at"]),
-            template_id=UUID(action_data["template_id"]) if action_data.get("template_id") else None,
+            template_id=UUID(action_data["template_id"]) if action_data.get(
+                "template_id") else None,
             portal_id=UUID(action_data["portal_id"]),
             workflow_id=action_data.get("workflow_id"),
             source=action_data["source"],
             cicd_search_token=action_data.get("cicd_search_token"),
         )
-        
+
     except Exception:
         logger.exception(
             "Failed to fetch action by CICD token",
@@ -234,7 +241,7 @@ def get_action_by_cicd_token(cicd_search_token: str) -> Optional[Action]:
 def update_action_file_path(action_id: UUID, filepath: str) -> None:
     """Update the file path of an action"""
     supabase = get_supabase()
-    
+
     try:
         result = (
             supabase
@@ -243,10 +250,10 @@ def update_action_file_path(action_id: UUID, filepath: str) -> None:
             .eq("id", str(action_id))
             .execute()
         )
-        
+
         if not result.data:
             raise SecretPersistenceError("Action not found for update")
-            
+
     except Exception:
         logger.exception(
             "Failed to update action file path",
@@ -258,7 +265,7 @@ def update_action_file_path(action_id: UUID, filepath: str) -> None:
 def delete_action(action_id: UUID) -> None:
     """Delete an action from the database"""
     supabase = get_supabase()
-    
+
     try:
         result = (
             supabase
@@ -267,10 +274,10 @@ def delete_action(action_id: UUID) -> None:
             .eq("id", str(action_id))
             .execute()
         )
-        
+
         if not result.data:
             logger.warning(f"Action {action_id} not found for deletion")
-            
+
     except Exception:
         logger.exception(
             "Failed to delete action",
