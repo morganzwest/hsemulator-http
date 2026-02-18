@@ -60,7 +60,7 @@ def decrypt_secret_for_test(secret_id: UUID) -> dict:
                 "secret_id": str(secret_id),
                 "portal_id": str(record.get("portal_id")) if "record" in locals() else None,
                 "scope": record.get("scope") if "record" in locals() else None,
-                "name": record.get("name") if "record" in locals() else None,
+                "secret_name": record.get("name") if "record" in locals() else None,
             },
         )
         raise SecretPersistenceError("Failed to decrypt secret (InvalidTag)")

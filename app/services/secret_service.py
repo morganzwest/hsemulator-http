@@ -64,7 +64,7 @@ def create_secret(
                 "portal_id": str(portal_id),
                 "action_id": str(action_id) if action_id else None,
                 "scope": scope,
-                "name": name,
+                "secret_name": name,
             },
         )
         raise SecretPersistenceError("Unhandled error during secret creation")
@@ -106,7 +106,7 @@ def update_secret(
             extra={"secret_id": str(secret_id)},
         )
         raise SecretPersistenceError("Unhandled error during secret update")
-    
+
 
 def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
     """Deletes a secret after validating portal ownership and user authorisation.
@@ -120,7 +120,7 @@ def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
     Raises:
         HTTPException: If the portal does not match or the user is not authorised.
         SecretPersistenceError: If the secret cannot be retrieved or deleted."""
-    
+
     try:
         secret = get_secret_by_id(secret_id)
 
@@ -129,7 +129,8 @@ def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
 
         owner_ids = get_portal_owner_profile_ids(portal_id=portal_id)
         if user_id not in owner_ids:
-            raise SecretForbiddenError("Forbidden: User is not an owner of the portal")
+            raise SecretForbiddenError(
+                "Forbidden: User is not an owner of the portal")
 
         delete_secret_record(secret_id=secret_id)
 

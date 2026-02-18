@@ -104,7 +104,7 @@ def encrypt_secret(
             extra={
                 "portal_id": portal_id,
                 "scope": scope,
-                "name": name,
+                "secret_name": name,
                 "action_id": action_id,
             },
         )
