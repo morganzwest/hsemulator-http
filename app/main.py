@@ -1,3 +1,29 @@
+"""
+HSEmulator HTTP Service - Main FastAPI Application
+
+This module provides the main HTTP API for the HSEmulator service, which handles
+HubSpot workflow action execution, secret management, and CI/CD operations.
+
+Key Features:
+- Workflow action execution with local and cloud modes
+- Secure secret storage and retrieval with AES-GCM encryption
+- CI/CD integration for HubSpot workflow management
+- Comprehensive error tracking with Sentry integration
+- Authentication via runtime API tokens
+
+Architecture:
+- FastAPI-based REST API with CORS support
+- Asynchronous execution with job queuing
+- Layered authentication and authorization
+- Structured error handling and logging
+
+Environment Variables:
+- EXECUTION_MODE: 'local' for immediate execution, 'cloud' for job queuing
+- RUNTIME_API_TOKEN: Bearer token for API authentication
+- SENTRY_DSN: Error tracking configuration
+- CORS_ORIGINS: Comma-separated list of allowed origins
+"""
+
 from __future__ import annotations
 from fastapi import Response
 
@@ -65,8 +91,10 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# Detect if running in Google Cloud Run environment
 IS_CLOUD_RUN = bool(getenv("K_SERVICE"))
 
+# Configure structured logging with execution context
 handler = logging.StreamHandler()
 handler.setFormatter(
     logging.Formatter(
@@ -76,27 +104,34 @@ handler.setFormatter(
         "%(message)s"
     )
 )
+# Add custom filters for execution tracking and Sentry context
 handler.addFilter(ExecutionContextFilter())
 handler.addFilter(SentryContextFilter())
 
 logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 # ----------------------------
-# Sentry Error Tracking
+# Sentry Error Tracking Configuration
 # ----------------------------
 if settings.sentry_dsn:
+    # Configure logging integration for Sentry
     sentry_logging = LoggingIntegration(
-        level=logging.INFO,
-        event_level=logging.ERROR
+        level=logging.INFO,      # Capture INFO and above as breadcrumbs
+        event_level=logging.ERROR  # Send ERROR level events to Sentry
     )
 
-    # Configure before_init callback to add custom metadata
     def before_send(event: Dict[str, Any] | None, hint: Dict[str, Any]) -> Dict[str, Any] | None:
-        """Add custom metadata to Sentry events."""
+        """
+        Add custom metadata to Sentry events before sending.
+
+        This function enriches Sentry events with application context
+        including execution mode, environment, and service information
+        to help with debugging and monitoring.
+        """
         if event is None:
             return None
 
-        # Add custom tags
+        # Add custom tags for filtering and grouping in Sentry
         event["tags"] = {
             **event.get("tags", {}),
             "execution_mode": settings.execution_mode,
@@ -104,7 +139,7 @@ if settings.sentry_dsn:
             "service": settings.app_name,
         }
 
-        # Add extra context
+        # Add extra context for detailed debugging information
         event["extra"] = {
             **event.get("extra", {}),
             "environment_info": {
@@ -117,32 +152,31 @@ if settings.sentry_dsn:
 
         return event
 
+    # Initialize Sentry SDK with comprehensive configuration
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         integrations=[
-            FastApiIntegration(),
-            sentry_logging
+            FastApiIntegration(),  # FastAPI-specific error tracking
+            sentry_logging         # Logging integration
         ],
-        traces_sample_rate=settings.sentry_traces_sample_rate,
+        traces_sample_rate=settings.sentry_traces_sample_rate,  # Performance monitoring
         environment=settings.sentry_environment,
         release=settings.sentry_release,
         server_name=settings.sentry_server_name,
         debug=settings.sentry_debug,
         before_send=before_send,
-        # Add user feedback integration
-        attach_stacktrace=True,
-        # Max breadcrumb count for better context
-        max_breadcrumbs=50,
+        attach_stacktrace=True,    # Include stack traces for better debugging
+        max_breadcrumbs=50,       # Maximum breadcrumb count for context
     )
 
-    # Set global user context (can be overridden per request)
+    # Set global user context for Sentry (can be overridden per request)
     sentry_sdk.set_user({
         "id": "system",
         "environment": settings.environment,
         "execution_mode": settings.execution_mode,
     })
 
-    # Set global tags
+    # Set global tags for consistent filtering in Sentry
     sentry_sdk.set_tag("service", settings.app_name)
     sentry_sdk.set_tag("execution_mode", settings.execution_mode)
     sentry_sdk.set_tag("is_cloud_run", IS_CLOUD_RUN)
@@ -155,22 +189,25 @@ if settings.sentry_dsn:
 else:
     logger.warning("SENTRY_DSN not configured - error tracking disabled")
 
+# Initialize FastAPI application
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
 )
 
 # ----------------------------
-# CORS
+# CORS (Cross-Origin Resource Sharing) Configuration
 # ----------------------------
-# Prefer a list from config, e.g.:
-# CORS_ORIGINS="http://localhost:3000,https://app.example.com"
+# Parse CORS origins from environment variable
+# Supports both comma-separated string and list formats
+# Example: CORS_ORIGINS="http://localhost:3000,https://app.example.com"
 origins = (
     settings.cors_origins
     if isinstance(settings.cors_origins, list)
     else [o.strip() for o in settings.cors_origins.split(",")]
 )
 
+# Add CORS middleware to allow cross-origin requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -180,21 +217,29 @@ app.add_middleware(
 )
 
 # ----------------------------
-# Routes
+# API Routes
 # ----------------------------
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # Add request context to Sentry
+    """
+    Global exception handler for all unhandled exceptions.
+
+    This middleware captures unhandled exceptions, adds context to Sentry,
+    and returns a standardized error response. It filters sensitive headers
+    and includes execution context when available.
+    """
+    # Add request context to Sentry for better debugging
     if settings.sentry_dsn:
         with sentry_sdk.configure_scope() as scope:
-            # Filter sensitive headers
+            # Filter sensitive headers to avoid exposing secrets
             safe_headers = {}
             for key, value in request.headers.items():
                 if key.lower() not in ['authorization', 'cookie', 'x-api-key', 'x-auth-token']:
                     safe_headers[key] = value
 
+            # Set request context in Sentry
             scope.set_context("request", {
                 "url": str(request.url),
                 "method": request.method,
@@ -206,15 +251,16 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "query_params": dict(request.query_params),
             })
 
-            # Add execution context if available
+            # Add execution context if available from request state
             if hasattr(request.state, 'execution_id'):
                 scope.set_tag("execution_id", request.state.execution_id)
             if hasattr(request.state, 'status'):
                 scope.set_tag("status", request.state.status)
 
-        # Capture exception with additional context
+        # Capture exception with additional context in Sentry
         sentry_sdk.capture_exception(exc)
 
+    # Return standardized error response
     return JSONResponse(
         status_code=500,
         content={"error": str(exc)},
@@ -223,8 +269,20 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
+    """
+    Health check endpoint for monitoring service status.
+
+    This endpoint verifies that the service and its dependencies are functioning
+    correctly by testing database connectivity. It returns service metadata
+    including status, name, and environment.
+
+    Returns:
+        HealthResponse: Service health status and metadata
+    """
+    # Test database connectivity by performing a simple query
     supabase = get_supabase()
     supabase.table("action_executions").select("id").limit(1).execute()
+
     return HealthResponse(
         status="ok",
         service=settings.app_name,
@@ -234,10 +292,25 @@ def health_check():
 
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
+    """
+    Execute a HubSpot workflow action.
+
+    This endpoint queues a workflow action for execution. In local mode,
+    it executes immediately. In cloud mode, it queues the job for
+    asynchronous processing by the job scheduler.
+
+    Args:
+        req: Execution request containing action configuration and execution ID
+
+    Returns:
+        ExecuteAcceptedResponse: Confirmation of job queuing with execution status
+    """
     payload = req.model_dump(mode="json")
 
+    # Queue the execution job for processing
     await enqueue_execution_job(req.execution_id, payload)
 
+    # In local mode, execute immediately (for development/testing)
     if settings.execution_mode == "local":
         # NOTE: Long term, this should be enabled.
         # if IS_CLOUD_RUN:
@@ -258,6 +331,19 @@ async def execute(req: ExecuteRequest):
     dependencies=[Depends(require_runtime_token)],
 )
 def create_secret_endpoint(req: CreateSecretRequest):
+    """
+    Create a new encrypted secret.
+
+    This endpoint creates a new secret with AES-GCM encryption and stores it
+    securely in the database. The secret is encrypted with a unique data
+    encryption key (DEK) that is wrapped using the key encryption key (KEK).
+
+    Args:
+        req: Secret creation request containing scope, portal ID, name, and value
+
+    Returns:
+        CreateSecretResponse: Confirmation of secret creation with generated ID
+    """
     secret_id = create_secret(
         scope=req.scope,
         portal_id=req.portal_id,
@@ -275,6 +361,20 @@ def create_secret_endpoint(req: CreateSecretRequest):
     dependencies=[Depends(require_runtime_token)],
 )
 def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
+    """
+    Update an existing secret's value.
+
+    This endpoint updates the value of an existing secret while maintaining
+    the same metadata (scope, name, etc.). The new value is encrypted with
+    a fresh data encryption key for security.
+
+    Args:
+        secret_id: UUID of the secret to update
+        req: Update request containing the new secret value
+
+    Returns:
+        UpdateSecretResponse: Confirmation of successful update
+    """
     update_secret(secret_id=secret_id, value=req.value)
     return UpdateSecretResponse(ok=True, secret_id=secret_id)
 
@@ -427,6 +527,22 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
     dependencies=[Depends(require_runtime_token)]
 )
 def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
+    """
+    Delete an existing secret.
+
+    This endpoint deletes a secret after performing authorization checks
+    to ensure the user has permission to delete secrets from the specified portal.
+
+    Args:
+        secret_id: UUID of the secret to delete
+        req: Delete request containing portal ID and user ID for authorization
+
+    Returns:
+        DeleteSecretResponse: Confirmation of successful deletion
+
+    Raises:
+        HTTPException: If authorization fails or secret is not found
+    """
     try:
         delete_secret(
             secret_id=secret_id,

@@ -1,3 +1,33 @@
+"""
+Cryptographic Utilities for HSEmulator
+
+This module provides AES-GCM encryption and decryption functionality with a
+key-wrapping pattern for secure secret storage. It implements industry-standard
+cryptographic practices for confidentiality, integrity, and authenticity.
+
+Security Architecture:
+- AES-256-GCM for authenticated encryption (confidentiality + integrity)
+- Key Encryption Key (KEK) wraps Data Encryption Keys (DEK)
+- Additional Authenticated Data (AAD) for context binding
+- Per-secret unique DEKs for key isolation and forward secrecy
+- Cryptographically secure random nonce generation
+
+Key Management:
+- KEK derived from environment variable (KEK_HEX)
+- Unique DEK generated per secret for key isolation
+- DEKs are wrapped using KEK and stored with encrypted data
+- Support for KEK rotation through key_id tracking
+
+Threat Mitigation:
+- Authentication tags prevent ciphertext tampering
+- AAD prevents ciphertext replay across contexts
+- Unique nonces prevent nonce reuse attacks
+- Key isolation limits impact of key compromise
+
+Environment Variables:
+- KEK_HEX: Hex-encoded Key Encryption Key (32 bytes for AES-256)
+"""
+
 import os
 import json
 import secrets
@@ -9,7 +39,7 @@ from cryptography.exceptions import InvalidTag
 
 logger = logging.getLogger(__name__)
 
-# Key Encryption Key (KEK)
+# Load Key Encryption Key (KEK) from environment
 try:
     KEK = bytes.fromhex(os.environ["KEK_HEX"])
 except KeyError as exc:
@@ -17,25 +47,44 @@ except KeyError as exc:
 except ValueError as exc:
     raise RuntimeError("KEK_HEX is not valid hex") from exc
 
+# Regex for validating hex strings
 _HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 
 # -------------------------
-# AAD handling
+# Additional Authenticated Data (AAD) Handling
 # -------------------------
 
 def canonical_aad(aad: dict) -> bytes:
     """
-    Deterministically serialise AAD for AES-GCM.
-    Any change in ordering or formatting WILL break decryption.
+    Create deterministic canonical serialization of AAD for AES-GCM.
+
+    This function converts AAD dictionary into a canonical JSON representation
+    to ensure consistent serialization across encryption and decryption operations.
+    Any change in ordering or formatting WILL break decryption of existing data.
+
+    Canonical Format:
+    - JSON with sorted keys (deterministic ordering)
+    - Compact separators (no whitespace)
+    - UTF-8 encoding
+
+    Args:
+        aad: Dictionary containing Additional Authenticated Data
+
+    Returns:
+        bytes: Canonical JSON representation of AAD
+
+    Raises:
+        TypeError: If AAD is not a dictionary
     """
     if not isinstance(aad, dict):
         raise TypeError("AAD must be a dict")
 
+    # Use deterministic JSON serialization
     return json.dumps(
         aad,
-        sort_keys=True,
-        separators=(",", ":"),
+        sort_keys=True,        # Sort keys for consistent ordering
+        separators=(",", ":"),  # Compact format without whitespace
     ).encode("utf-8")
 
 
