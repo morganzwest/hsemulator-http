@@ -26,6 +26,7 @@ def create_action(
     language: str,
     portal_id: UUID,
     workflow_id: Optional[str],
+    action_id: Optional[str] = None,
     source: str,
     config: Dict[str, Any],
     filepath: str,
@@ -58,6 +59,9 @@ def create_action(
     if workflow_id:
         payload["workflow_id"] = workflow_id
 
+    if action_id:
+        payload["action_id"] = action_id
+
     if template_id:
         payload["template_id"] = str(template_id)
 
@@ -85,6 +89,7 @@ def create_action(
                 "template_id") else None,
             portal_id=UUID(action_data["portal_id"]),
             workflow_id=action_data.get("workflow_id"),
+            action_id=action_data.get("action_id"),
             source=action_data["source"],
             cicd_search_token=action_data.get("cicd_search_token"),
         )
