@@ -93,17 +93,18 @@ async def process_custom_action(
         # Normalize language
         normalized_language = normalize_language(language)
         
-        # Check if action already exists for this workflow
-        existing_action = get_action_by_workflow_id(workflow_id)
+        # Check if action already exists for this workflow and action
+        existing_action = get_action_by_workflow_and_action_id(workflow_id, action_id)
         if existing_action:
             logger.warning(
-                f"Action already exists for workflow {workflow_id}",
+                f"Action already exists for workflow {workflow_id}, action {action_id}",
                 extra={
                     "workflow_id": workflow_id,
+                    "action_id": action_id,
                     "existing_action_id": str(existing_action.id),
                 }
             )
-            raise ActionAlreadyExistsError(f"Action already exists for workflow {workflow_id}")
+            raise ActionAlreadyExistsError(f"Action already exists for workflow {workflow_id}, action {action_id}")
         
         # Create action in database first to get the UUID
         action = create_action(
@@ -113,6 +114,7 @@ async def process_custom_action(
             language=normalized_language,
             portal_id=portal_id,
             workflow_id=workflow_id,
+            action_id=action_id,
             source="hubspot",
             config=config or {},
             filepath="",  # Will be updated after file upload
@@ -217,23 +219,23 @@ def sanitize_path_component(component: str) -> str:
     return component
 
 
-def get_action_by_workflow_id(workflow_id: str) -> Optional[Action]:
-    """Get an action by its HubSpot workflow ID"""
+def get_action_by_workflow_and_action_id(workflow_id: str, action_id: str) -> Optional[Action]:
+    """Get an action by its HubSpot workflow ID and action ID"""
     if not workflow_id or not workflow_id.strip():
         raise ValueError("workflow_id cannot be None or empty")
     
-    from app.db.actions_repo import get_actions_by_portal
     from app.db import get_supabase
     
     try:
         supabase = get_supabase()
         
-        # Query by workflow_id directly, selecting only needed columns
+        # Query by workflow_id AND action_id
         result = (
             supabase
             .table("actions")
-            .select("id,workflow_id,cicd_search_token")
+            .select("id,workflow_id,action_id,cicd_search_token")
             .eq("workflow_id", workflow_id)
+            .eq("action_id", action_id)
             .execute()
         )
         
@@ -250,6 +252,7 @@ def get_action_by_workflow_id(workflow_id: str) -> Optional[Action]:
             language=action_data.get("language", "python"),
             filepath="",  # Placeholder
             workflow_id=action_data.get("workflow_id"),
+            action_id=action_data.get("action_id"),
             cicd_search_token=action_data.get("cicd_search_token"),
             # Set required fields with defaults
             description=None,
@@ -264,8 +267,8 @@ def get_action_by_workflow_id(workflow_id: str) -> Optional[Action]:
         
     except Exception:
         logger.exception(
-            "Failed to fetch action by workflow ID",
-            extra={"workflow_id": workflow_id}
+            "Failed to fetch action by workflow and action ID",
+            extra={"workflow_id": workflow_id, "action_id": action_id}
         )
         return None
 

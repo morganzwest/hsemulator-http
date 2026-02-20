@@ -84,6 +84,12 @@ class Action(BaseModel):
         examples=["123456789"],
     )
     
+    action_id: Optional[str] = Field(
+        None,
+        description="HubSpot action ID within the workflow",
+        examples=["1", "2"],
+    )
+    
     source: str = Field(
         ...,
         description="Source system where this action was discovered",
