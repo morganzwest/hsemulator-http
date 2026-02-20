@@ -60,17 +60,17 @@ async def run_execution(execution_id: UUID) -> None:
     """
     start = time.monotonic()
 
-    # Update execution status to indicate execution has started
-    update_execution_status(
-        execution_id=str(execution_id),
-        status="running",
-        started=True,
-    )
-
     try:
-        # Retrieve execution payload with action configuration
+        # Retrieve execution payload with action configuration first
         payload = await get_execution_payload(execution_id)
         lang = payload["config"]["action"]["language"]
+
+        # Update execution status to indicate execution has started
+        update_execution_status(
+            execution_id=str(execution_id),
+            status="running",
+            started=True,
+        )
 
         # Dispatch to appropriate language-specific worker
         if lang == "python":
@@ -95,14 +95,26 @@ async def run_execution(execution_id: UUID) -> None:
         # Calculate duration and mark as failed
         duration_ms = int((time.monotonic() - start) * 1000)
 
-        update_execution_status(
-            execution_id=str(execution_id),
-            status="failed",
-            ok=False,
-            finished=True,
-            error_message=str(exc),
-            duration_ms=duration_ms,
-        )
+        # Update status to failed if execution started
+        try:
+            update_execution_status(
+                execution_id=str(execution_id),
+                status="failed",
+                ok=False,
+                finished=True,
+                error_message=str(exc),
+                duration_ms=duration_ms,
+            )
+        except Exception as status_exc:
+            # If status update fails, log the error but still raise original exception
+            logger.error(
+                "Failed to update execution status after execution failure",
+                extra={
+                    "execution_id": str(execution_id),
+                    "status_error": str(status_exc),
+                    "original_error": str(exc),
+                },
+            )
 
         # Re-raise exception for upstream error handling
         raise exc

@@ -56,7 +56,7 @@ def decrypt_secret_for_test(secret_id: UUID) -> dict:
     """
     Decrypt a secret for testing purposes.
 
-    This function retrieves an encrypted secret from the database and attempts
+    This function retrieves an encrypted secret from database and attempts
     to decrypt it using the stored cryptographic material and context. It's
     primarily intended for testing and validation of secret storage.
 
@@ -66,7 +66,7 @@ def decrypt_secret_for_test(secret_id: UUID) -> dict:
     - Additional Authenticated Data for context binding
 
     Args:
-        secret_id (UUID): The unique identifier of the secret to decrypt
+        secret_id (UUID): The unique identifier of secret to decrypt
 
     Returns:
         dict: Decrypted secret information containing:
@@ -84,6 +84,7 @@ def decrypt_secret_for_test(secret_id: UUID) -> dict:
         SecretPersistenceError: When secret is not found or decryption fails
         InvalidTag: When authentication tag verification fails (handled internally)
     """
+    record = None
     try:
         # Retrieve the encrypted secret record from database
         record = get_secret_by_id(secret_id)
@@ -125,9 +126,9 @@ def decrypt_secret_for_test(secret_id: UUID) -> dict:
             "Test decryption failed: InvalidTag",
             extra={
                 "secret_id": str(secret_id),
-                "portal_id": str(record.get("portal_id")) if "record" in locals() else None,
-                "scope": record.get("scope") if "record" in locals() else None,
-                "secret_name": record.get("name") if "record" in locals() else None,
+                "portal_id": str(record.get("portal_id")) if record else None,
+                "scope": record.get("scope") if record else None,
+                "secret_name": record.get("name") if record else None,
             },
         )
         raise SecretPersistenceError("Failed to decrypt secret (InvalidTag)")

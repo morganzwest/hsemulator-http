@@ -167,9 +167,6 @@ def update_secret(
             kek_key_id=encrypted["kek_key_id"],
         )
 
-    except SecretPersistenceError:
-        raise
-
     except Exception:
         logger.exception(
             "Unhandled error during secret update",
@@ -230,3 +227,15 @@ def delete_secret(*, secret_id: UUID, portal_id: UUID, user_id: UUID) -> None:
     except SecretPersistenceError:
         # Re-raise persistence errors (including "Secret not found")
         raise
+
+    except Exception:
+        # Catch-all for other unexpected errors
+        logger.exception(
+            "Unexpected error during secret deletion",
+            extra={
+                "secret_id": str(secret_id),
+                "portal_id": str(portal_id),
+                "user_id": str(user_id),
+            },
+        )
+        raise SecretPersistenceError("Failed to delete secret")

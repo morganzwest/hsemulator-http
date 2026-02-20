@@ -260,10 +260,24 @@ async def global_exception_handler(request: Request, exc: Exception):
         # Capture exception with additional context in Sentry
         sentry_sdk.capture_exception(exc)
 
+    # Sanitize exception message to prevent secret leakage
+    error_message = str(exc)
+
+    # Filter out potential secret values from error messages
+    sensitive_patterns = [
+        'password', 'token', 'secret', 'key', 'credential',
+        'authorization', 'bearer', 'api_key'
+    ]
+
+    for pattern in sensitive_patterns:
+        if pattern.lower() in error_message.lower():
+            error_message = f"Internal server error (sensitive information filtered)"
+            break
+
     # Return standardized error response
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc)},
+        content={"error": error_message},
     )
 
 
@@ -279,7 +293,7 @@ def health_check():
     Returns:
         HealthResponse: Service health status and metadata
     """
-    # Test database connectivity by performing a simple query
+    # Test database connectivity with a lightweight query
     supabase = get_supabase()
     supabase.table("action_executions").select("id").limit(1).execute()
 
@@ -468,6 +482,14 @@ async def check_workflow_status_endpoint(
         raise HTTPException(
             status_code=400, detail="search_key cannot be empty")
 
+    # Validate cicd_secret_id format
+    try:
+        cicd_secret_id_str = str(cicd_secret_id)
+        UUID(cicd_secret_id_str)  # This will raise ValueError if invalid
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=400, detail="Invalid cicd_secret_id format")
+
     try:
         result = await check_workflow_status(
             cicd_secret_id=cicd_secret_id,
@@ -552,7 +574,11 @@ def delete_secret_endpoint(secret_id: UUID, req: DeleteSecretRequest):
         return DeleteSecretResponse(ok=True, secret_id=secret_id)
 
     except (SecretNotFoundError, SecretPortalMismatchError, SecretForbiddenError) as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        # Use default status code if exception doesn't have status_code attribute
+        status_code = getattr(e, 'status_code', 404)
+        raise HTTPException(status_code=status_code, detail=str(e))
 
     except SecretPersistenceError as e:
-        raise e
+        # SecretPersistenceError should have status_code from base class
+        status_code = getattr(e, 'status_code', 500)
+        raise HTTPException(status_code=status_code, detail=str(e))
