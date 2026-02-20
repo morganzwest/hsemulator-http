@@ -15,7 +15,7 @@ from app.config import settings
 from app.models import HealthResponse, ExecuteRequest, ExecuteAcceptedResponse
 from app.db import get_supabase
 from app.services.execution_service import enqueue_execution_job
-from app.logger import ExecutionContextFilter
+from app.logger import ExecutionContextFilter, SentryContextFilter
 from app.auth import require_runtime_token
 from app.models.secrets import (
     CreateSecretRequest,
@@ -58,7 +58,10 @@ from app.models.errors import (
     SecretNotFoundError
 )
 from os import getenv
-import logging
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +77,83 @@ handler.setFormatter(
     )
 )
 handler.addFilter(ExecutionContextFilter())
+handler.addFilter(SentryContextFilter())
 
 logging.basicConfig(level=logging.INFO, handlers=[handler])
+
+# ----------------------------
+# Sentry Error Tracking
+# ----------------------------
+if settings.sentry_dsn:
+    sentry_logging = LoggingIntegration(
+        level=logging.INFO,
+        event_level=logging.ERROR
+    )
+
+    # Configure before_init callback to add custom metadata
+    def before_send(event: Dict[str, Any] | None, hint: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Add custom metadata to Sentry events."""
+        if event is None:
+            return None
+
+        # Add custom tags
+        event["tags"] = {
+            **event.get("tags", {}),
+            "execution_mode": settings.execution_mode,
+            "is_cloud_run": IS_CLOUD_RUN,
+            "service": settings.app_name,
+        }
+
+        # Add extra context
+        event["extra"] = {
+            **event.get("extra", {}),
+            "environment_info": {
+                "environment": settings.environment,
+                "execution_mode": settings.execution_mode,
+                "is_cloud_run": IS_CLOUD_RUN,
+                "app_name": settings.app_name,
+            }
+        }
+
+        return event
+
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        integrations=[
+            FastApiIntegration(),
+            sentry_logging
+        ],
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        environment=settings.sentry_environment,
+        release=settings.sentry_release,
+        server_name=settings.sentry_server_name,
+        debug=settings.sentry_debug,
+        before_send=before_send,
+        # Add user feedback integration
+        attach_stacktrace=True,
+        # Max breadcrumb count for better context
+        max_breadcrumbs=50,
+    )
+
+    # Set global user context (can be overridden per request)
+    sentry_sdk.set_user({
+        "id": "system",
+        "environment": settings.environment,
+        "execution_mode": settings.execution_mode,
+    })
+
+    # Set global tags
+    sentry_sdk.set_tag("service", settings.app_name)
+    sentry_sdk.set_tag("execution_mode", settings.execution_mode)
+    sentry_sdk.set_tag("is_cloud_run", IS_CLOUD_RUN)
+
+    logger.info("Sentry error tracking initialized", extra={
+        "environment": settings.sentry_environment,
+        "release": settings.sentry_release,
+        "traces_sample_rate": settings.sentry_traces_sample_rate,
+    })
+else:
+    logger.warning("SENTRY_DSN not configured - error tracking disabled")
 
 app = FastAPI(
     title=settings.app_name,
@@ -108,6 +186,35 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Add request context to Sentry
+    if settings.sentry_dsn:
+        with sentry_sdk.configure_scope() as scope:
+            # Filter sensitive headers
+            safe_headers = {}
+            for key, value in request.headers.items():
+                if key.lower() not in ['authorization', 'cookie', 'x-api-key', 'x-auth-token']:
+                    safe_headers[key] = value
+
+            scope.set_context("request", {
+                "url": str(request.url),
+                "method": request.method,
+                "headers": safe_headers,
+                "client": {
+                    "host": request.client.host if request.client else None,
+                    "port": request.client.port if request.client else None,
+                },
+                "query_params": dict(request.query_params),
+            })
+
+            # Add execution context if available
+            if hasattr(request.state, 'execution_id'):
+                scope.set_tag("execution_id", request.state.execution_id)
+            if hasattr(request.state, 'status'):
+                scope.set_tag("status", request.state.status)
+
+        # Capture exception with additional context
+        sentry_sdk.capture_exception(exc)
+
     return JSONResponse(
         status_code=500,
         content={"error": str(exc)},
@@ -180,10 +287,10 @@ def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
 async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False):
     """
     Promote source code to a HubSpot workflow action.
-    
+
     This endpoint allows CI/CD systems to update HubSpot workflow actions
     by providing source code and a CICD secret ID (containing the HubSpot token).
-    
+
     Args:
         req: Promotion request with source code, secret ID, workflow ID, and search key
         force: Force update even if action has no hash marker (default: False)
@@ -198,7 +305,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             force=force,
             dry_run=dry_run,
         )
-        
+
         return CicdPromoteResponse(
             ok=result["ok"],
             workflow_id=result["workflow_id"],
@@ -206,7 +313,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             revision_id=result.get("revision_id"),
             action_index=result.get("action_index"),
         )
-        
+
     except NoUpdateNeededError as e:
         # Return success response for no-op updates
         return CicdPromoteResponse(
@@ -216,13 +323,13 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             revision_id=None,
             action_index=None,
         )
-        
+
     except (SecretDecryptionError, ActionNotManagedError) as e:
         raise HTTPException(status_code=400, detail=str(e))
-        
+
     except CICDServiceError as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
     except Exception as e:
         logger.exception("Unexpected error in CICD promote")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -241,11 +348,11 @@ async def check_workflow_status_endpoint(
 ):
     """
     Check the status of a workflow action and its synchronization state.
-    
+
     This endpoint helps with CICD onboarding by showing whether an action
     is managed by hsemulator, if it's in sync with source code, and provides
     recommendations for next steps.
-    
+
     Args:
         workflow_id: HubSpot workflow ID to check
         cicd_secret_id: ID of the CICD-scoped secret containing the HubSpot token
@@ -254,11 +361,13 @@ async def check_workflow_status_endpoint(
     """
     # Validate input parameters
     if not workflow_id or not workflow_id.strip():
-        raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
-    
+        raise HTTPException(
+            status_code=400, detail="workflow_id cannot be empty")
+
     if not search_key or not search_key.strip():
-        raise HTTPException(status_code=400, detail="search_key cannot be empty")
-    
+        raise HTTPException(
+            status_code=400, detail="search_key cannot be empty")
+
     try:
         result = await check_workflow_status(
             cicd_secret_id=cicd_secret_id,
@@ -266,9 +375,9 @@ async def check_workflow_status_endpoint(
             search_key=search_key.strip(),
             source_code=source_code,
         )
-        
+
         return result
-        
+
     except Exception as e:
         logger.exception("Unexpected error in workflow status check")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -282,11 +391,11 @@ async def check_workflow_status_endpoint(
 async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
     """
     Discover HubSpot workflows with custom code actions in a portal.
-    
+
     This endpoint scans all workflows in a portal to find custom code actions
     that can be managed by the CICD system. It handles pagination automatically
     and can optionally process and store actions in the database.
-    
+
     Args:
         req: Discovery request containing all required parameters
     """
@@ -298,15 +407,15 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
             portal_id_int=req.portal_id_int,
             process_actions=req.process_actions,
         )
-        
+
         return result
-        
+
     except SecretVerificationError as e:
         raise HTTPException(status_code=404, detail=str(e))
-        
+
     except WorkflowDiscoveryError as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
     except Exception as e:
         logger.exception("Unexpected error in workflow discovery")
         raise HTTPException(status_code=500, detail="Internal server error")
