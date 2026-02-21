@@ -33,14 +33,18 @@ from app.models.errors import (
     SecretPersistenceError,
     SecretNotFoundError,
     SecretPortalMismatchError,
-    SecretForbiddenError
+    SecretForbiddenError,
+    CicdSecretValidationError,
+    CicdTokenInvalidError,
+    CicdTokenMissingScopesError,
 )
+from app.services.cicd_secret_validation_service import validate_cicd_token_scopes
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
 
-def create_secret(
+async def create_secret(
     *,
     scope: str,
     portal_id: UUID,
@@ -53,9 +57,9 @@ def create_secret(
     Create a new encrypted secret with AES-GCM encryption.
 
     This function encrypts the secret value using a unique data encryption key
-    (DEK) that is wrapped with the key encryption key (KEK). The encrypted
-    data includes the ciphertext, nonce, wrapped DEK, and additional authenticated
-    data (AAD) for context binding.
+    (DEK) that is wrapped with the key encryption key (KEK). For CICD-scoped
+    secrets, it validates the token has required HubSpot API permissions before
+    storing in the database.
 
     Args:
         scope: Secret scope ('portal', 'action', or 'cicd')
@@ -71,9 +75,25 @@ def create_secret(
     Raises:
         SecretAlreadyExistsError: If a secret with the same context already exists
         SecretPersistenceError: If database operations fail
+        CicdTokenInvalidError: If CICD token is invalid (401 response)
+        CicdTokenMissingScopesError: If CICD token lacks required scopes (403 response)
+        CicdSecretValidationError: For other CICD validation failures
         RuntimeError: For unexpected encryption or programming errors
     """
     try:
+        # Validate CICD token scopes before proceeding with CICD secrets
+        if scope == "cicd":
+            logger.info("Validating CICD token scopes before secret creation", extra={
+                "portal_id": str(portal_id),
+                "secret_name": name,
+                "scope": scope
+            })
+            
+            # Validate the token has required HubSpot API scopes
+            await validate_cicd_token_scopes(value)
+            
+            logger.info("CICD token validation successful, proceeding with secret creation")
+
         # Encrypt the secret value with AES-GCM and key wrapping
         encrypted = encrypt_secret(
             plaintext=value,
@@ -97,6 +117,10 @@ def create_secret(
             kek_key_id=encrypted["kek_key_id"],
             created_by=created_by,
         )
+
+    except (CicdSecretValidationError, CicdTokenInvalidError, CicdTokenMissingScopesError):
+        # Re-raise CICD validation errors cleanly
+        raise
 
     except SecretAlreadyExistsError:
         # Bubble up cleanly — already correct HTTP semantics

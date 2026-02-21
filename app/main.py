@@ -81,7 +81,10 @@ from app.models.errors import (
     SecretPersistenceError,
     SecretPortalMismatchError,
     SecretForbiddenError,
-    SecretNotFoundError
+    SecretNotFoundError,
+    CicdSecretValidationError,
+    CicdTokenInvalidError,
+    CicdTokenMissingScopesError,
 )
 from os import getenv
 import sentry_sdk
@@ -344,29 +347,62 @@ async def execute(req: ExecuteRequest):
     response_model=CreateSecretResponse,
     dependencies=[Depends(require_runtime_token)],
 )
-def create_secret_endpoint(req: CreateSecretRequest):
+async def create_secret_endpoint(req: CreateSecretRequest):
     """
     Create a new encrypted secret.
 
     This endpoint creates a new secret with AES-GCM encryption and stores it
     securely in the database. The secret is encrypted with a unique data
     encryption key (DEK) that is wrapped using the key encryption key (KEK).
+    
+    For CICD-scoped secrets, this endpoint validates that the token has the
+    required HubSpot API permissions before storing the secret in the database.
+    The validation makes a test API call to HubSpot's automation/v4/flows endpoint
+    and returns appropriate error messages for different failure scenarios:
+    
+    - 401: Token is invalid or expired
+    - 403: Token lacks required HubSpot API scopes
+    - 200: Token is valid with proper scopes
 
     Args:
         req: Secret creation request containing scope, portal ID, name, and value
 
     Returns:
         CreateSecretResponse: Confirmation of secret creation with generated ID
+        
+    Raises:
+        HTTPException: For various validation and persistence errors with appropriate status codes
     """
-    secret_id = create_secret(
-        scope=req.scope,
-        portal_id=req.portal_id,
-        action_id=req.action_id,
-        name=req.name,
-        value=req.value,
-        created_by=req.created_by,
-    )
-    return CreateSecretResponse(ok=True, secret_id=secret_id)
+    try:
+        secret_id = await create_secret(
+            scope=req.scope,
+            portal_id=req.portal_id,
+            action_id=req.action_id,
+            name=req.name,
+            value=req.value,
+            created_by=req.created_by,
+        )
+        return CreateSecretResponse(ok=True, secret_id=secret_id)
+    
+    except CicdTokenInvalidError as e:
+        # Token is invalid/expired (401)
+        raise HTTPException(status_code=401, detail=str(e))
+    
+    except CicdTokenMissingScopesError as e:
+        # Token lacks required scopes (403)
+        raise HTTPException(status_code=403, detail=str(e))
+    
+    except CicdSecretValidationError as e:
+        # General CICD validation error (400)
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    except SecretAlreadyExistsError as e:
+        # Secret already exists (409)
+        raise HTTPException(status_code=409, detail=str(e))
+    
+    except (SecretPersistenceError, RuntimeError) as e:
+        # Database or other persistence errors (500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put(

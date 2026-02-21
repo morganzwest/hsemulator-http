@@ -36,3 +36,21 @@ class SecretPortalMismatchError(SecretError):
 class SecretForbiddenError(SecretError):
     def __init__(self, detail: str = "Forbidden"):
         super().__init__(detail, status.HTTP_403_FORBIDDEN)
+
+
+class CicdSecretValidationError(SecretError):
+    """Base exception for CICD secret validation failures"""
+    def __init__(self, detail: str = "CICD secret validation failed"):
+        super().__init__(detail, status.HTTP_400_BAD_REQUEST)
+
+
+class CicdTokenInvalidError(SecretError):
+    """Raised when CICD token is invalid (401 response)"""
+    def __init__(self, detail: str = "Invalid CICD token: authentication failed"):
+        super().__init__(detail, status.HTTP_401_UNAUTHORIZED)
+
+
+class CicdTokenMissingScopesError(SecretError):
+    """Raised when CICD token lacks required scopes (403 response)"""
+    def __init__(self, detail: str = "CICD token missing required HubSpot API scopes"):
+        super().__init__(detail, status.HTTP_403_FORBIDDEN)
