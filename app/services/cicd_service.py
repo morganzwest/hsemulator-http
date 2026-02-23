@@ -65,7 +65,7 @@ async def promote_to_hubspot(
     source_code: str,
     cicd_secret_id: UUID,
     workflow_id: str,
-    search_key: str,
+    action_id: str,
     force: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -76,7 +76,7 @@ async def promote_to_hubspot(
         source_code: Source code to deploy
         cicd_secret_id: ID of the CICD secret containing HubSpot token
         workflow_id: HubSpot workflow ID
-        search_key: Secret name to identify target action
+        action_id: HubSpot action ID to identify target action
         force: Force update even if action has no hash marker
         dry_run: Perform dry run without making changes
     
@@ -96,7 +96,7 @@ async def promote_to_hubspot(
     
     # Find the target action
     try:
-        action_index = find_action_by_secret(workflow, search_key)
+        action_index = find_action_by_action_id(workflow, action_id)
     except ActionNotFoundError as e:
         raise CICDServiceError(f"Target action not found: {e}")
     except HubSpotServiceError as e:
@@ -171,7 +171,7 @@ async def promote_to_hubspot(
 async def check_workflow_status(
     cicd_secret_id: UUID,
     workflow_id: str,
-    search_key: str,
+    action_id: str,
     source_code: Optional[str] = None,
 ) -> WorkflowStatusResponse:
     """
@@ -180,7 +180,7 @@ async def check_workflow_status(
     Args:
         cicd_secret_id: ID of the CICD secret containing HubSpot token
         workflow_id: HubSpot workflow ID to check
-        search_key: Secret name to identify the target action
+        action_id: HubSpot action ID to identify the target action
         source_code: Optional source code to compare against current action
     
     Returns:
@@ -195,7 +195,7 @@ async def check_workflow_status(
     except SecretDecryptionError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -212,7 +212,7 @@ async def check_workflow_status(
     except WorkflowNotFoundError:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="workflow_not_found",
             action_found=False,
             has_hash_marker=False,
@@ -225,7 +225,7 @@ async def check_workflow_status(
     except HubSpotAPIError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -238,25 +238,25 @@ async def check_workflow_status(
     
     # Try to find the target action
     try:
-        action_index = find_action_by_secret(workflow, search_key)
+        action_index = find_action_by_action_id(workflow, action_id)
         action_found = True
     except ActionNotFoundError:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="not_found",
             action_found=False,
             has_hash_marker=False,
             current_hash=None,
             source_hash=source_hash,
             action_index=None,
-            recommendation=f"Action with secret '{search_key}' not found in workflow. Check the search key.",
+            recommendation=f"Action with actionId '{action_id}' not found in workflow. Check the action_id.",
             can_promote=False,
         )
     except HubSpotServiceError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -273,7 +273,7 @@ async def check_workflow_status(
     except HubSpotServiceError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=action_found,
             has_hash_marker=False,
@@ -309,7 +309,7 @@ async def check_workflow_status(
     
     return WorkflowStatusResponse(
         workflow_id=workflow_id,
-        search_key=search_key,
+        action_id=action_id,
         status=status,
         action_found=action_found,
         has_hash_marker=has_hash_marker,

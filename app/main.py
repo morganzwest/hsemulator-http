@@ -185,7 +185,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
     by providing source code and a CICD secret ID (containing the HubSpot token).
     
     Args:
-        req: Promotion request with source code, secret ID, workflow ID, and search key
+        req: Promotion request with source code, secret ID, workflow ID, and action ID
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
     """
@@ -194,7 +194,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             source_code=req.source_code,
             cicd_secret_id=req.cicd_secret_id,
             workflow_id=req.workflow_id,
-            search_key=req.search_key,
+            action_id=req.action_id,
             force=force,
             dry_run=dry_run,
         )
@@ -236,7 +236,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
 async def check_workflow_status_endpoint(
     workflow_id: str,
     cicd_secret_id: UUID,
-    search_key: str,
+    action_id: str,
     source_code: Optional[str] = None,
 ):
     """
@@ -249,21 +249,21 @@ async def check_workflow_status_endpoint(
     Args:
         workflow_id: HubSpot workflow ID to check
         cicd_secret_id: ID of the CICD-scoped secret containing the HubSpot token
-        search_key: Secret name to identify the target action within the workflow
+        action_id: HubSpot action ID to identify the target action within the workflow
         source_code: Optional source code to compare against the current action
     """
     # Validate input parameters
     if not workflow_id or not workflow_id.strip():
         raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
     
-    if not search_key or not search_key.strip():
-        raise HTTPException(status_code=400, detail="search_key cannot be empty")
+    if not action_id or not action_id.strip():
+        raise HTTPException(status_code=400, detail="action_id cannot be empty")
     
     try:
         result = await check_workflow_status(
             cicd_secret_id=cicd_secret_id,
             workflow_id=workflow_id.strip(),
-            search_key=search_key.strip(),
+            action_id=action_id.strip(),
             source_code=source_code,
         )
         

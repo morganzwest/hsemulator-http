@@ -30,11 +30,11 @@ class CicdPromoteRequest(BaseModel):
         examples=["123456789"],
     )
     
-    search_key: str = Field(
+    action_id: str = Field(
         ...,
         min_length=1,
-        description="Secret name to identify the target action within the workflow",
-        examples=["MY_ACTION_SECRET"],
+        description="HubSpot action ID to identify the target action within the workflow",
+        examples=["action-123456"],
     )
 
 
@@ -104,10 +104,10 @@ class WorkflowStatusResponse(BaseModel):
         examples=["123456789"],
     )
     
-    search_key: str = Field(
+    action_id: str = Field(
         ...,
-        description="Secret name that was searched for",
-        examples=["MY_ACTION_SECRET"],
+        description="HubSpot action ID that was looked up",
+        examples=["action-123456"],
     )
     
     status: WorkflowStatus = Field(
