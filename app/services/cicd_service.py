@@ -12,13 +12,21 @@ from app.services.hubspot_service import (
     extract_hash_marker,
     build_updated_workflow_payload,
     put_workflow,
+    get_workflow_actions,
     WorkflowNotFoundError,
     ActionNotFoundError,
     HubSpotAPIError,
     HubSpotServiceError,
 )
-from app.models.cicd import WorkflowStatusResponse, WorkflowStatus
-
+from app.models.cicd import (
+    CicdPromoteRequest,
+    CicdPromoteResponse,
+    WorkflowStatusResponse,
+    GetWorkflowActionsRequest,
+    GetWorkflowActionsResponse,
+    WorkflowActionResponse,
+    WorkflowStatus,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -318,4 +326,56 @@ async def check_workflow_status(
         action_index=action_index,
         recommendation=recommendation,
         can_promote=can_promote,
+    )
+
+
+async def get_workflow_actions(
+    cicd_secret_id: UUID,
+    workflow_id: str,
+) -> GetWorkflowActionsResponse:
+    """
+    Get all custom code actions from a HubSpot workflow.
+    
+    Args:
+        cicd_secret_id: ID of the CICD secret containing HubSpot token
+        workflow_id: HubSpot workflow ID to fetch actions from
+    
+    Returns:
+        GetWorkflowActionsResponse with all custom code actions found
+    """
+    # Decrypt the CICD secret to get HubSpot token
+    try:
+        token = await decrypt_cicd_secret(cicd_secret_id)
+    except SecretDecryptionError as e:
+        raise CICDServiceError(f"Failed to decrypt CICD secret: {e}")
+    
+    # Fetch the workflow
+    try:
+        workflow = await get_workflow(token, workflow_id)
+    except WorkflowNotFoundError as e:
+        raise CICDServiceError(f"Workflow not found: {e}")
+    except HubSpotAPIError as e:
+        raise CICDServiceError(f"Failed to fetch workflow: {e}")
+    
+    # Extract all custom code actions
+    actions = workflow.get("actions", [])
+    if not isinstance(actions, list):
+        raise CICDServiceError("Workflow missing 'actions' array")
+    
+    custom_actions = []
+    for action in actions:
+        if action.get("type") == "CUSTOM_CODE":
+            action_response = WorkflowActionResponse(
+                action_id=action.get("actionId", ""),
+                type=action.get("type", ""),
+                source_code=action.get("sourceCode"),
+                runtime=action.get("runtime"),
+                secret_names=action.get("secretNames", []),
+            )
+            custom_actions.append(action_response)
+    
+    return GetWorkflowActionsResponse(
+        workflow_id=workflow_id,
+        actions=custom_actions,
+        total_count=len(custom_actions),
     )

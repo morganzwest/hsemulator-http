@@ -28,7 +28,9 @@ from app.models.secrets import (
 from app.models.cicd import (
     CicdPromoteRequest,
     CicdPromoteResponse,
-    WorkflowStatusResponse
+    WorkflowStatusResponse,
+    GetWorkflowActionsRequest,
+    GetWorkflowActionsResponse,
 )
 from app.models.workflows import (
     WorkflowDiscoveryRequest,
@@ -40,6 +42,7 @@ from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.cicd_service import (
     promote_to_hubspot,
     check_workflow_status,
+    get_workflow_actions,
     CICDServiceError,
     SecretDecryptionError,
     ActionNotManagedError,
@@ -271,6 +274,45 @@ async def check_workflow_status_endpoint(
         
     except Exception as e:
         logger.exception("Unexpected error in workflow status check")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get(
+    "/cicd/workflow/{workflow_id}",
+    response_model=GetWorkflowActionsResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def get_workflow_actions_endpoint(
+    workflow_id: str,
+    req: GetWorkflowActionsRequest,
+):
+    """
+    Get all custom code actions from a HubSpot workflow.
+    
+    This endpoint retrieves all CUSTOM_CODE type actions from a workflow,
+    including their source code, runtime settings, and associated secret names.
+    
+    Args:
+        workflow_id: HubSpot workflow ID to fetch actions from
+        req: Request containing CICD secret ID for authentication
+    """
+    # Validate input parameters
+    if not workflow_id or not workflow_id.strip():
+        raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
+    
+    try:
+        result = await get_workflow_actions(
+            cicd_secret_id=req.cicd_secret_id,
+            workflow_id=workflow_id.strip(),
+        )
+        
+        return result
+        
+    except CICDServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in get workflow actions")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
