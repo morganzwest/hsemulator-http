@@ -5,14 +5,13 @@ from typing import Optional
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.hubspot_service import (
     get_workflow,
-    find_action_by_secret,
+    find_action_by_action_id,
     get_action_source_code,
     generate_source_hash,
     inject_hash_marker,
     extract_hash_marker,
     build_updated_workflow_payload,
     put_workflow,
-    get_workflow_actions,
     WorkflowNotFoundError,
     ActionNotFoundError,
     HubSpotAPIError,

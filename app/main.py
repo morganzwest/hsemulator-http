@@ -6,7 +6,7 @@ import logging
 from uuid import UUID
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
@@ -277,7 +277,7 @@ async def check_workflow_status_endpoint(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get(
+@app.post(
     "/cicd/workflow/{workflow_id}",
     response_model=GetWorkflowActionsResponse,
     dependencies=[Depends(require_runtime_token)],

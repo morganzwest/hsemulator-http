@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 
 class CicdPromoteRequest(BaseModel):
