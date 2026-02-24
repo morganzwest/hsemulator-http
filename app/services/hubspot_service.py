@@ -117,8 +117,8 @@ async def get_workflows_batch_read(token: str, workflow_ids: List[str]) -> Dict[
             raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
 
 
-def find_action_by_secret(workflow: Dict[str, Any], search_key: str) -> int:
-    """Find the target action index by searching for the secret name"""
+def find_action_by_action_id(workflow: Dict[str, Any], action_id: str) -> int:
+    """Find the target action index by searching for the HubSpot actionId"""
     actions = workflow.get("actions", [])
     if not isinstance(actions, list):
         raise HubSpotServiceError("Workflow missing 'actions' array")
@@ -129,21 +129,19 @@ def find_action_by_secret(workflow: Dict[str, Any], search_key: str) -> int:
         if action.get("type") != "CUSTOM_CODE":
             continue
             
-        secret_names = action.get("secretNames", [])
-        if not isinstance(secret_names, list):
-            continue
-            
-        if search_key in secret_names:
+        # Match by HubSpot's actionId field
+        current_action_id = action.get("actionId")
+        if current_action_id == action_id:
             matches.append(idx)
     
     if not matches:
         raise ActionNotFoundError(
-            f"No CUSTOM_CODE action found with secretNames containing '{search_key}'"
+            f"No CUSTOM_CODE action found with actionId '{action_id}'"
         )
     
     if len(matches) != 1:
         raise HubSpotServiceError(
-            f"Search key '{search_key}' matched {len(matches)} actions. Expected exactly 1 match."
+            f"Action ID '{action_id}' matched {len(matches)} actions. Expected exactly 1 match."
         )
     
     return matches[0]

@@ -5,7 +5,7 @@ from typing import Optional
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.hubspot_service import (
     get_workflow,
-    find_action_by_secret,
+    find_action_by_action_id,
     get_action_source_code,
     generate_source_hash,
     inject_hash_marker,
@@ -17,8 +17,15 @@ from app.services.hubspot_service import (
     HubSpotAPIError,
     HubSpotServiceError,
 )
-from app.models.cicd import WorkflowStatusResponse, WorkflowStatus
-
+from app.models.cicd import (
+    CicdPromoteRequest,
+    CicdPromoteResponse,
+    WorkflowStatusResponse,
+    GetWorkflowActionsRequest,
+    GetWorkflowActionsResponse,
+    WorkflowActionResponse,
+    WorkflowStatus,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -65,7 +72,7 @@ async def promote_to_hubspot(
     source_code: str,
     cicd_secret_id: UUID,
     workflow_id: str,
-    search_key: str,
+    action_id: str,
     force: bool = False,
     dry_run: bool = False,
 ) -> dict:
@@ -76,7 +83,7 @@ async def promote_to_hubspot(
         source_code: Source code to deploy
         cicd_secret_id: ID of the CICD secret containing HubSpot token
         workflow_id: HubSpot workflow ID
-        search_key: Secret name to identify target action
+        action_id: HubSpot action ID to identify target action
         force: Force update even if action has no hash marker
         dry_run: Perform dry run without making changes
     
@@ -96,7 +103,7 @@ async def promote_to_hubspot(
     
     # Find the target action
     try:
-        action_index = find_action_by_secret(workflow, search_key)
+        action_index = find_action_by_action_id(workflow, action_id)
     except ActionNotFoundError as e:
         raise CICDServiceError(f"Target action not found: {e}")
     except HubSpotServiceError as e:
@@ -171,7 +178,7 @@ async def promote_to_hubspot(
 async def check_workflow_status(
     cicd_secret_id: UUID,
     workflow_id: str,
-    search_key: str,
+    action_id: str,
     source_code: Optional[str] = None,
 ) -> WorkflowStatusResponse:
     """
@@ -180,7 +187,7 @@ async def check_workflow_status(
     Args:
         cicd_secret_id: ID of the CICD secret containing HubSpot token
         workflow_id: HubSpot workflow ID to check
-        search_key: Secret name to identify the target action
+        action_id: HubSpot action ID to identify the target action
         source_code: Optional source code to compare against current action
     
     Returns:
@@ -195,7 +202,7 @@ async def check_workflow_status(
     except SecretDecryptionError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -212,7 +219,7 @@ async def check_workflow_status(
     except WorkflowNotFoundError:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="workflow_not_found",
             action_found=False,
             has_hash_marker=False,
@@ -225,7 +232,7 @@ async def check_workflow_status(
     except HubSpotAPIError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -238,25 +245,25 @@ async def check_workflow_status(
     
     # Try to find the target action
     try:
-        action_index = find_action_by_secret(workflow, search_key)
+        action_index = find_action_by_action_id(workflow, action_id)
         action_found = True
     except ActionNotFoundError:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="not_found",
             action_found=False,
             has_hash_marker=False,
             current_hash=None,
             source_hash=source_hash,
             action_index=None,
-            recommendation=f"Action with secret '{search_key}' not found in workflow. Check the search key.",
+            recommendation=f"Action with actionId '{action_id}' not found in workflow. Check the action_id.",
             can_promote=False,
         )
     except HubSpotServiceError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=False,
             has_hash_marker=False,
@@ -273,7 +280,7 @@ async def check_workflow_status(
     except HubSpotServiceError as e:
         return WorkflowStatusResponse(
             workflow_id=workflow_id,
-            search_key=search_key,
+            action_id=action_id,
             status="access_denied",
             action_found=action_found,
             has_hash_marker=False,
@@ -309,7 +316,7 @@ async def check_workflow_status(
     
     return WorkflowStatusResponse(
         workflow_id=workflow_id,
-        search_key=search_key,
+        action_id=action_id,
         status=status,
         action_found=action_found,
         has_hash_marker=has_hash_marker,
@@ -318,4 +325,56 @@ async def check_workflow_status(
         action_index=action_index,
         recommendation=recommendation,
         can_promote=can_promote,
+    )
+
+
+async def get_workflow_actions(
+    cicd_secret_id: UUID,
+    workflow_id: str,
+) -> GetWorkflowActionsResponse:
+    """
+    Get all custom code actions from a HubSpot workflow.
+    
+    Args:
+        cicd_secret_id: ID of the CICD secret containing HubSpot token
+        workflow_id: HubSpot workflow ID to fetch actions from
+    
+    Returns:
+        GetWorkflowActionsResponse with all custom code actions found
+    """
+    # Decrypt the CICD secret to get HubSpot token
+    try:
+        token = await decrypt_cicd_secret(cicd_secret_id)
+    except SecretDecryptionError as e:
+        raise CICDServiceError(f"Failed to decrypt CICD secret: {e}")
+    
+    # Fetch the workflow
+    try:
+        workflow = await get_workflow(token, workflow_id)
+    except WorkflowNotFoundError as e:
+        raise CICDServiceError(f"Workflow not found: {e}")
+    except HubSpotAPIError as e:
+        raise CICDServiceError(f"Failed to fetch workflow: {e}")
+    
+    # Extract all custom code actions
+    actions = workflow.get("actions", [])
+    if not isinstance(actions, list):
+        raise CICDServiceError("Workflow missing 'actions' array")
+    
+    custom_actions = []
+    for action in actions:
+        if action.get("type") == "CUSTOM_CODE":
+            action_response = WorkflowActionResponse(
+                action_id=action.get("actionId", ""),
+                type=action.get("type", ""),
+                source_code=action.get("sourceCode"),
+                runtime=action.get("runtime"),
+                secret_names=action.get("secretNames", []),
+            )
+            custom_actions.append(action_response)
+    
+    return GetWorkflowActionsResponse(
+        workflow_id=workflow_id,
+        actions=custom_actions,
+        total_count=len(custom_actions),
     )

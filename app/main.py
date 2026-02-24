@@ -32,7 +32,7 @@ import logging
 from uuid import UUID
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
@@ -54,7 +54,9 @@ from app.models.secrets import (
 from app.models.cicd import (
     CicdPromoteRequest,
     CicdPromoteResponse,
-    WorkflowStatusResponse
+    WorkflowStatusResponse,
+    GetWorkflowActionsRequest,
+    GetWorkflowActionsResponse,
 )
 from app.models.workflows import (
     WorkflowDiscoveryRequest,
@@ -66,6 +68,7 @@ from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.cicd_service import (
     promote_to_hubspot,
     check_workflow_status,
+    get_workflow_actions,
     CICDServiceError,
     SecretDecryptionError,
     ActionNotManagedError,
@@ -442,7 +445,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
     by providing source code and a CICD secret ID (containing the HubSpot token).
 
     Args:
-        req: Promotion request with source code, secret ID, workflow ID, and search key
+        req: Promotion request with source code, secret ID, workflow ID, and action ID
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
     """
@@ -451,7 +454,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             source_code=req.source_code,
             cicd_secret_id=req.cicd_secret_id,
             workflow_id=req.workflow_id,
-            search_key=req.search_key,
+            action_id=req.action_id,
             force=force,
             dry_run=dry_run,
         )
@@ -493,7 +496,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
 async def check_workflow_status_endpoint(
     workflow_id: str,
     cicd_secret_id: UUID,
-    search_key: str,
+    action_id: str,
     source_code: Optional[str] = None,
 ):
     """
@@ -506,31 +509,21 @@ async def check_workflow_status_endpoint(
     Args:
         workflow_id: HubSpot workflow ID to check
         cicd_secret_id: ID of the CICD-scoped secret containing the HubSpot token
-        search_key: Secret name to identify the target action within the workflow
+        action_id: HubSpot action ID to identify the target action within the workflow
         source_code: Optional source code to compare against the current action
     """
     # Validate input parameters
     if not workflow_id or not workflow_id.strip():
-        raise HTTPException(
-            status_code=400, detail="workflow_id cannot be empty")
-
-    if not search_key or not search_key.strip():
-        raise HTTPException(
-            status_code=400, detail="search_key cannot be empty")
-
-    # Validate cicd_secret_id format
-    try:
-        cicd_secret_id_str = str(cicd_secret_id)
-        UUID(cicd_secret_id_str)  # This will raise ValueError if invalid
-    except (ValueError, AttributeError):
-        raise HTTPException(
-            status_code=400, detail="Invalid cicd_secret_id format")
-
+        raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
+    
+    if not action_id or not action_id.strip():
+        raise HTTPException(status_code=400, detail="action_id cannot be empty")
+    
     try:
         result = await check_workflow_status(
             cicd_secret_id=cicd_secret_id,
             workflow_id=workflow_id.strip(),
-            search_key=search_key.strip(),
+            action_id=action_id.strip(),
             source_code=source_code,
         )
 
@@ -538,6 +531,45 @@ async def check_workflow_status_endpoint(
 
     except Exception as e:
         logger.exception("Unexpected error in workflow status check")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get(
+    "/cicd/workflow/{workflow_id}",
+    response_model=GetWorkflowActionsResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def get_workflow_actions_endpoint(
+    workflow_id: str,
+    cicd_secret_id: UUID,
+):
+    """
+    Get all custom code actions from a HubSpot workflow.
+    
+    This endpoint retrieves all CUSTOM_CODE type actions from a workflow,
+    including their source code, runtime settings, and associated secret names.
+    
+    Args:
+        workflow_id: HubSpot workflow ID to fetch actions from
+        cicd_secret_id: CICD secret ID for authentication
+    """
+    # Validate input parameters
+    if not workflow_id or not workflow_id.strip():
+        raise HTTPException(status_code=400, detail="workflow_id cannot be empty")
+    
+    try:
+        result = await get_workflow_actions(
+            cicd_secret_id=cicd_secret_id,
+            workflow_id=workflow_id.strip(),
+        )
+        
+        return result
+        
+    except CICDServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in get workflow actions")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

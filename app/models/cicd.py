@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 
 class CicdPromoteRequest(BaseModel):
@@ -30,11 +30,11 @@ class CicdPromoteRequest(BaseModel):
         examples=["123456789"],
     )
     
-    search_key: str = Field(
+    action_id: str = Field(
         ...,
         min_length=1,
-        description="Secret name to identify the target action within the workflow",
-        examples=["MY_ACTION_SECRET"],
+        description="HubSpot action ID to identify the target action within the workflow",
+        examples=["action-123456"],
     )
 
 
@@ -73,6 +73,68 @@ class CicdPromoteResponse(BaseModel):
     )
 
 
+class GetWorkflowActionsRequest(BaseModel):
+    """
+    Request to get all custom code actions from a HubSpot workflow.
+    """
+    cicd_secret_id: UUID = Field(
+        ...,
+        description="ID of the CICD-scoped secret containing the HubSpot token",
+        examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
+    )
+
+
+class WorkflowActionResponse(BaseModel):
+    """
+    Response model for a single workflow action.
+    """
+    action_id: str = Field(
+        ...,
+        description="HubSpot action ID",
+        examples=["action-123456"],
+    )
+    type: str = Field(
+        ...,
+        description="Action type",
+        examples=["CUSTOM_CODE"],
+    )
+    source_code: Optional[str] = Field(
+        None,
+        description="Source code from the action",
+        examples=["def main():\n    print('Hello World')"],
+    )
+    runtime: Optional[str] = Field(
+        None,
+        description="Runtime settings for the action",
+        examples=["python3.9"],
+    )
+    secret_names: Optional[List[str]] = Field(
+        None,
+        description="Associated secret names",
+        examples=[["MY_SECRET"]],
+    )
+
+
+class GetWorkflowActionsResponse(BaseModel):
+    """
+    Response containing all custom code actions from a workflow.
+    """
+    workflow_id: str = Field(
+        ...,
+        description="ID of the workflow",
+        examples=["123456789"],
+    )
+    actions: List[WorkflowActionResponse] = Field(
+        ...,
+        description="List of custom code actions found in the workflow",
+    )
+    total_count: int = Field(
+        ...,
+        description="Total number of custom code actions found",
+        examples=[3],
+    )
+
+
 class WorkflowAction(BaseModel):
     """Internal model representing a HubSpot workflow action"""
     type: str
@@ -104,10 +166,10 @@ class WorkflowStatusResponse(BaseModel):
         examples=["123456789"],
     )
     
-    search_key: str = Field(
+    action_id: str = Field(
         ...,
-        description="Secret name that was searched for",
-        examples=["MY_ACTION_SECRET"],
+        description="HubSpot action ID that was looked up",
+        examples=["action-123456"],
     )
     
     status: WorkflowStatus = Field(
