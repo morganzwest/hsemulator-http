@@ -181,15 +181,23 @@ def get_portal_owner_profile_ids(*, portal_id: UUID) -> list[UUID]:
     supabase = get_supabase()
 
     try:
+        # Get distinct owner_ids from actions in this portal
+        # This reflects the new ownership structure: account > portal > action
         result = (
             supabase
-            .table("profiles")
-            .select("id")
-            .contains("portal_uuids", [str(portal_id)])
+            .table("actions")
+            .select("owner_id")
+            .eq("portal_id", str(portal_id))
             .execute()
         )
 
-        return [UUID(row["id"]) for row in (result.data or [])]
+        # Extract unique owner IDs
+        owner_ids = set()
+        for row in (result.data or []):
+            if row.get("owner_id"):
+                owner_ids.add(UUID(row["owner_id"]))
+
+        return list(owner_ids)
 
     except Exception:
         logger.exception(
