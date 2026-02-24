@@ -277,14 +277,14 @@ async def check_workflow_status_endpoint(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post(
+@app.get(
     "/cicd/workflow/{workflow_id}",
     response_model=GetWorkflowActionsResponse,
     dependencies=[Depends(require_runtime_token)],
 )
 async def get_workflow_actions_endpoint(
     workflow_id: str,
-    req: GetWorkflowActionsRequest,
+    cicd_secret_id: UUID,
 ):
     """
     Get all custom code actions from a HubSpot workflow.
@@ -294,7 +294,7 @@ async def get_workflow_actions_endpoint(
     
     Args:
         workflow_id: HubSpot workflow ID to fetch actions from
-        req: Request containing CICD secret ID for authentication
+        cicd_secret_id: CICD secret ID for authentication
     """
     # Validate input parameters
     if not workflow_id or not workflow_id.strip():
@@ -302,7 +302,7 @@ async def get_workflow_actions_endpoint(
     
     try:
         result = await get_workflow_actions(
-            cicd_secret_id=req.cicd_secret_id,
+            cicd_secret_id=cicd_secret_id,
             workflow_id=workflow_id.strip(),
         )
         
