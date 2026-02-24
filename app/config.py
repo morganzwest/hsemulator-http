@@ -31,6 +31,28 @@ class Settings(BaseModel):
     runtime_api_token: str | None = os.getenv("RUNTIME_API_TOKEN")
 
     # ----------------------------
+    # Error Tracking (Sentry/Better Stack)
+    # ----------------------------
+    sentry_dsn: str | None = os.getenv("SENTRY_DSN")
+    sentry_release: str = os.getenv("SENTRY_RELEASE", "0.1.0")
+    sentry_environment: str = os.getenv("SENTRY_ENVIRONMENT", "development")
+    sentry_traces_sample_rate: float = float(
+        os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+    sentry_server_name: str | None = os.getenv("SENTRY_SERVER_NAME")
+    sentry_debug: bool = os.getenv("SENTRY_DEBUG", "false").lower() == "true"
+
+    @field_validator("sentry_traces_sample_rate", mode="before")
+    @classmethod
+    def validate_traces_sample_rate(cls, v):
+        try:
+            rate = float(v)
+            if not 0.0 <= rate <= 1.0:
+                raise ValueError("Sample rate must be between 0.0 and 1.0")
+            return rate
+        except (ValueError, TypeError):
+            return 0.1  # default fallback
+
+    # ----------------------------
     # CORS
     # ----------------------------
     # Comma-separated list in env:

@@ -54,5 +54,8 @@ RUN pip install --upgrade pip \
 
 COPY . .
 
+# Make startup script executable
+RUN chmod +x start.sh
+
 EXPOSE 8080
-CMD ["python", "run.py"]
+CMD ["./start.sh"]
