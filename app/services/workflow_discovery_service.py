@@ -334,7 +334,6 @@ async def discover_workflows(secret_id: UUID, portal_id: UUID, owner_id: UUID, p
                             logger.error(f"Invalid UUID format for action ID: {result.get('action_id')}")
                             continue
                         
-                        custom_action.cicd_search_token = result["cicd_search_token"]
                         custom_action.filepath = result["filepath"]
                         custom_action.event_filepath = result["event_filepath"]
                         custom_action.input_fields = result["input_fields"]
@@ -345,7 +344,6 @@ async def discover_workflows(secret_id: UUID, portal_id: UUID, owner_id: UUID, p
                             extra={
                                 "workflow_id": workflow_id,
                                 "action_id": result["action_id"],
-                                "cicd_token": result["cicd_search_token"],
                             }
                         )
                         

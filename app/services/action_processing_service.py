@@ -76,7 +76,6 @@ async def process_custom_action(
     Returns:
         Dictionary containing all action details including:
         - action_id: Database UUID of the created action
-        - cicd_search_token: Generated CICD search token
         - filepath: Storage path for the source code
         - event_filepath: Storage path for the event file
         - input_fields: Extracted input fields
@@ -166,14 +165,12 @@ async def process_custom_action(
                 "source_filepath": source_filepath,
                 "event_filepath": event_filepath,
                 "input_fields_count": len(input_fields),
-                "cicd_search_token": action.cicd_search_token,
             }
         )
         
         # Return comprehensive action details
         return {
             "action_id": str(action.id),
-            "cicd_search_token": action.cicd_search_token,
             "filepath": source_filepath,
             "event_filepath": event_filepath,
             "input_fields": input_fields,
@@ -233,7 +230,7 @@ def get_action_by_workflow_and_action_id(workflow_id: str, action_id: str) -> Op
         result = (
             supabase
             .table("actions")
-            .select("id,workflow_id,action_id,cicd_search_token")
+            .select("id,workflow_id,action_id")
             .eq("workflow_id", workflow_id)
             .eq("action_id", action_id)
             .execute()
@@ -253,7 +250,6 @@ def get_action_by_workflow_and_action_id(workflow_id: str, action_id: str) -> Op
             filepath="",  # Placeholder
             workflow_id=action_data.get("workflow_id"),
             action_id=action_data.get("action_id"),
-            cicd_search_token=action_data.get("cicd_search_token"),
             # Set required fields with defaults
             description=None,
             config={},

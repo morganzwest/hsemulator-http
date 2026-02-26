@@ -76,12 +76,6 @@ class CustomCodeAction(BaseModel):
         examples=["3fa85f64-5717-4562-b3fc-2c963f66afa6"],
     )
     
-    cicd_search_token: Optional[str] = Field(
-        None,
-        description="Generated CICD search token for this action",
-        examples=["CI_CD_ABCDEFGH"],
-    )
-    
     filepath: Optional[str] = Field(
         None,
         description="Storage path for the source code file",

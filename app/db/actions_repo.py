@@ -10,14 +10,6 @@ from app.models.errors import SecretPersistenceError
 
 logger = logging.getLogger(__name__)
 
-
-def generate_cicd_search_token() -> str:
-    """Generate a random CICD search token in format CI_CD_<8 alpha chars>"""
-    random_chars = ''.join(secrets.choice(
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(8))
-    return f"CI_CD_{random_chars}"
-
-
 def create_action(
     *,
     owner_id: UUID,
@@ -35,9 +27,6 @@ def create_action(
     """Create a new action record in the database"""
     supabase = get_supabase()
 
-    # Generate CICD search token
-    cicd_search_token = generate_cicd_search_token()
-
     # Validate language
     if language not in ['python', 'javascript']:
         raise ValueError(
@@ -53,7 +42,6 @@ def create_action(
         "is_active": True,
         "portal_id": str(portal_id),
         "source": source,
-        "cicd_search_token": cicd_search_token,
     }
 
     if workflow_id:
@@ -91,7 +79,6 @@ def create_action(
             workflow_id=action_data.get("workflow_id"),
             action_id=action_data.get("action_id"),
             source=action_data["source"],
-            cicd_search_token=action_data.get("cicd_search_token"),
         )
 
     except ValueError:
@@ -143,7 +130,6 @@ def get_action_by_id(action_id: UUID) -> Optional[Action]:
             portal_id=UUID(action_data["portal_id"]),
             workflow_id=action_data.get("workflow_id"),
             source=action_data["source"],
-            cicd_search_token=action_data.get("cicd_search_token"),
         )
 
     except Exception:
@@ -185,7 +171,6 @@ def get_actions_by_portal(portal_id: UUID) -> List[Action]:
                 portal_id=UUID(action_data["portal_id"]),
                 workflow_id=action_data.get("workflow_id"),
                 source=action_data["source"],
-                cicd_search_token=action_data.get("cicd_search_token"),
             ))
 
         return actions
@@ -196,51 +181,6 @@ def get_actions_by_portal(portal_id: UUID) -> List[Action]:
             extra={"portal_id": str(portal_id)},
         )
         raise SecretPersistenceError("Failed to fetch actions by portal")
-
-
-def get_action_by_cicd_token(cicd_search_token: str) -> Optional[Action]:
-    """Get an action by its CICD search token"""
-    supabase = get_supabase()
-
-    try:
-        result = (
-            supabase
-            .table("actions")
-            .select("*")
-            .eq("cicd_search_token", cicd_search_token)
-            .execute()
-        )
-
-        if not result.data:
-            return None
-
-        action_data = result.data[0]
-
-        return Action(
-            id=UUID(action_data["id"]),
-            owner_id=UUID(action_data["owner_id"]),
-            name=action_data["name"],
-            description=action_data.get("description"),
-            language=action_data["language"],
-            filepath=action_data["filepath"],
-            config=action_data.get("config", {}),
-            is_active=action_data["is_active"],
-            created_at=datetime.fromisoformat(action_data["created_at"]),
-            updated_at=datetime.fromisoformat(action_data["updated_at"]),
-            template_id=UUID(action_data["template_id"]) if action_data.get(
-                "template_id") else None,
-            portal_id=UUID(action_data["portal_id"]),
-            workflow_id=action_data.get("workflow_id"),
-            source=action_data["source"],
-            cicd_search_token=action_data.get("cicd_search_token"),
-        )
-
-    except Exception:
-        logger.exception(
-            "Failed to fetch action by CICD token",
-            extra={"cicd_search_token": cicd_search_token},
-        )
-        raise SecretPersistenceError("Failed to fetch action by CICD token")
 
 
 def update_action_file_path(action_id: UUID, filepath: str) -> None:

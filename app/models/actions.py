@@ -95,12 +95,6 @@ class Action(BaseModel):
         description="Source system where this action was discovered",
         examples=["hubspot"],
     )
-    
-    cicd_search_token: Optional[str] = Field(
-        None,
-        description="CICD search token for identifying this action",
-        examples=["CI_CD_ABCDEFGH"],
-    )
 
 
 class CreateActionRequest(BaseModel):
@@ -121,5 +115,4 @@ class CreateActionResponse(BaseModel):
     
     ok: bool = Field(..., description="Whether creation was successful")
     action_id: UUID = Field(..., description="ID of the created action")
-    cicd_search_token: str = Field(..., description="Generated CICD search token")
     filepath: str = Field(..., description="Storage path for the action")
