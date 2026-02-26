@@ -53,6 +53,7 @@ from app.models.secrets import (
 )
 from app.models.cicd import (
     CicdPromoteRequest,
+    CicdPromoteByUrlRequest,
     CicdPromoteResponse,
     WorkflowStatusResponse,
     GetWorkflowActionsRequest,
@@ -439,7 +440,9 @@ def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
 )
 async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False):
     """
-    Promote source code to a HubSpot workflow action.
+    [DEPRECATED] Promote source code to a HubSpot workflow action.
+
+    This endpoint is deprecated. Use POST /cicd/workflow/{workflow_id}/action/{action_id}/promote instead.
 
     This endpoint allows CI/CD systems to update HubSpot workflow actions
     by providing source code and a CICD secret ID (containing the HubSpot token).
@@ -487,6 +490,68 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
         logger.exception("Unexpected error in CICD promote")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.post(
+    "/cicd/workflow/{workflow_id}/action/{action_id}/promote",
+    response_model=CicdPromoteResponse,
+    dependencies=[Depends(require_runtime_token)],
+)
+async def promote_workflow_action(
+    workflow_id: str,
+    action_id: str,
+    req: CicdPromoteByUrlRequest,
+    force: bool = False,
+    dry_run: bool = False,
+):
+    """
+    Promote source code to a HubSpot workflow action using URL parameters.
+    
+    This is the new preferred endpoint that uses workflow_id and action_id
+    from the URL path instead of request body. The old /cicd/promote endpoint
+    is deprecated and will be removed in a future version.
+    
+    Args:
+        workflow_id: HubSpot workflow ID from URL path
+        action_id: HubSpot action ID from URL path  
+        req: Request containing source code and CICD secret ID
+        force: Force update even if action has no hash marker (default: False)
+        dry_run: Perform dry run without making changes (default: False)
+    """
+    try:
+        result = await promote_to_hubspot(
+            source_code=req.source_code,
+            cicd_secret_id=req.cicd_secret_id,
+            workflow_id=workflow_id,
+            action_id=action_id,
+            force=force,
+            dry_run=dry_run,
+        )
+ 
+        return CicdPromoteResponse(
+            ok=result["ok"],
+            workflow_id=result["workflow_id"],
+            new_hash=result["new_hash"],
+            revision_id=result.get("revision_id"),
+            action_index=result.get("action_index"),
+        )
+ 
+    except NoUpdateNeededError as e:
+        return CicdPromoteResponse(
+            ok=True,
+            workflow_id=workflow_id,
+            new_hash=str(e).split(" ")[-1],
+            revision_id=None,
+            action_index=None,
+        )
+ 
+    except (SecretDecryptionError, ActionNotManagedError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+    except CICDServiceError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+ 
+    except Exception as e:
+        logger.exception("Unexpected error in workflow action promote")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get(
     "/cicd/workflow/{workflow_id}/status",
