@@ -61,6 +61,7 @@ class Settings(BaseModel):
         "http://localhost:3000",
         "http://localhost:5173",
         "https://hsemulator-ui.vercel.app",
+        "api.novocode.novocy.com"
     ]
 
     cors_allow_credentials: bool = True
