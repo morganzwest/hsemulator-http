@@ -1,5 +1,5 @@
 """
-Node.js Runner for HSEmulator
+Node.js Runner for Novocode Runtime
 
 This module provides Node.js execution capabilities for workflow actions.
 It contains the embedded JavaScript code that runs as a sandboxed process

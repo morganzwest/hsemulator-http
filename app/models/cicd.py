@@ -6,7 +6,7 @@ from typing import Optional, Literal, List
 class CicdPromoteRequest(BaseModel):
     """
     Request to promote source code to a HubSpot workflow action.
-    
+
     The CICD secret ID is used to retrieve and decrypt the HubSpot token
     from the encrypted secrets store, ensuring no raw tokens are passed.
     """
@@ -16,20 +16,20 @@ class CicdPromoteRequest(BaseModel):
         description="Source code to deploy to the HubSpot action",
         examples=["def main():\n    print('Hello World')"],
     )
-    
+
     cicd_secret_id: UUID = Field(
         ...,
         description="ID of the CICD-scoped secret containing the HubSpot token",
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
     )
-    
+
     workflow_id: str = Field(
         ...,
         min_length=1,
         description="HubSpot workflow ID to update",
         examples=["123456789"],
     )
-    
+
     action_id: str = Field(
         ...,
         min_length=1,
@@ -37,10 +37,11 @@ class CicdPromoteRequest(BaseModel):
         examples=["action-123456"],
     )
 
+
 class CicdPromoteByUrlRequest(BaseModel):
     """
     Request to promote source code to a HubSpot workflow action using URL parameters.
-    
+
     This is the new preferred method that uses workflow_id and action_id from URL path
     instead of request body, deprecating the CICD search token approach.
     """
@@ -58,6 +59,7 @@ class CicdPromoteByUrlRequest(BaseModel):
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
     )
 
+
 class CicdPromoteResponse(BaseModel):
     """
     Response returned after successfully promoting source code to HubSpot.
@@ -67,25 +69,25 @@ class CicdPromoteResponse(BaseModel):
         description="Indicates whether the promotion was successful",
         examples=[True],
     )
-    
+
     workflow_id: str = Field(
         ...,
         description="ID of the updated workflow",
         examples=["123456789"],
     )
-    
+
     new_hash: str = Field(
         ...,
         description="SHA256 hash of the deployed source code",
         examples=["a1b2c3d4e5f6..."],
     )
-    
+
     revision_id: Optional[str] = Field(
         None,
         description="New revision ID of the workflow after update",
         examples=["rev_123456789"],
     )
-    
+
     action_index: Optional[int] = Field(
         None,
         description="Index of the updated action within the workflow",
@@ -167,7 +169,7 @@ class WorkflowAction(BaseModel):
 
 WorkflowStatus = Literal[
     "in_sync",
-    "out_of_sync", 
+    "out_of_sync",
     "unmanaged",
     "not_found",
     "workflow_not_found",
@@ -185,55 +187,55 @@ class WorkflowStatusResponse(BaseModel):
         description="ID of the checked workflow",
         examples=["123456789"],
     )
-    
+
     action_id: str = Field(
         ...,
         description="HubSpot action ID that was looked up",
         examples=["action-123456"],
     )
-    
+
     status: WorkflowStatus = Field(
         ...,
         description="Current synchronization status of the action",
         examples=["out_of_sync"],
     )
-    
+
     action_found: bool = Field(
         ...,
         description="Whether the target action was found in the workflow",
         examples=[True],
     )
-    
+
     has_hash_marker: bool = Field(
         ...,
-        description="Whether the action has an hsemulator hash marker",
+        description="Whether the action has a novocode hash marker",
         examples=[True],
     )
-    
+
     current_hash: Optional[str] = Field(
         None,
         description="Hash extracted from the current action source code",
         examples=["abc123..."],
     )
-    
+
     source_hash: Optional[str] = Field(
         None,
         description="Hash of the provided source code (if any)",
         examples=["def456..."],
     )
-    
+
     action_index: Optional[int] = Field(
         None,
         description="Index of the action within the workflow",
         examples=[2],
     )
-    
+
     recommendation: str = Field(
         ...,
         description="Recommended next steps based on the status",
         examples=["Action is out of sync. Use POST /cicd/promote to update."],
     )
-    
+
     can_promote: bool = Field(
         ...,
         description="Whether the action can be promoted using the CICD endpoint",

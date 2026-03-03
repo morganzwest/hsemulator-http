@@ -1,5 +1,5 @@
 """
-Authentication Module for HSEmulator HTTP Service
+Authentication Module for Novocode Runtime HTTP Service
 
 This module provides authentication and authorization functionality for the API.
 It implements Bearer token authentication using a runtime API token configured

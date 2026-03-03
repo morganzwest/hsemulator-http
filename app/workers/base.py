@@ -1,5 +1,5 @@
 """
-Base Worker Module for HSEmulator Execution
+Base Worker Module for Novocode Runtime Execution
 
 This module provides the core execution orchestration for workflow actions.
 It handles the complete execution lifecycle including status management,

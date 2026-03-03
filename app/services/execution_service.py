@@ -1,7 +1,7 @@
 """
-Execution Service for HSEmulator
+Execution Service for Novocode Runtime
 
-This module manages the execution lifecycle of HubSpot workflow actions.
+This module manages the execution lifecycle of workflow actions.
 It handles job queuing, payload retrieval, and dispatching to appropriate
 execution environments based on the action language.
 

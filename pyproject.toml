@@ -1,7 +1,7 @@
 [project]
-name = "hsemulator-api"
+name = "novocode-runtime-api"
 version = "0.1.0"
-description = "HS Emulator Runtime API"
+description = "Novocode Runtime API"
 requires-python = ">=3.11"
 
 dependencies = [

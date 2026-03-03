@@ -1,5 +1,5 @@
 """
-Secret Management Service for HSEmulator
+Secret Management Service for Novocode Runtime
 
 This module provides secure secret storage and management functionality using
 AES-GCM encryption with a key-wrapping pattern. It handles the creation,
@@ -88,11 +88,12 @@ async def create_secret(
                 "secret_name": name,
                 "scope": scope
             })
-            
+
             # Validate the token has required HubSpot API scopes
             await validate_cicd_token_scopes(value)
-            
-            logger.info("CICD token validation successful, proceeding with secret creation")
+
+            logger.info(
+                "CICD token validation successful, proceeding with secret creation")
 
         # Encrypt the secret value with AES-GCM and key wrapping
         encrypted = encrypt_secret(

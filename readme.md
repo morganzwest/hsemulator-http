@@ -1,10 +1,10 @@
-# HS Emulator – Python HTTP
+# Novocode Runtime API
 
 [![Better Stack Badge](https://uptime.betterstack.com/status-badges/v1/monitor/2fp1w.svg)](https://uptime.betterstack.com/?utm_source=status_badge)
 
 ## Goal
 
-HS Emulator is a **secure, deterministic runtime** for executing user-provided Python actions in isolation.
+Novocode Runtime API is a **secure, deterministic runtime** for executing user-provided Python actions in isolation.
 
 It is designed to:
 

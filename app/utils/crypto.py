@@ -1,5 +1,5 @@
 """
-Cryptographic Utilities for HSEmulator
+Cryptographic Utilities for Novocode Runtime
 
 This module provides AES-GCM encryption and decryption functionality with a
 key-wrapping pattern for secure secret storage. It implements industry-standard

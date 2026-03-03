@@ -13,7 +13,7 @@ class Settings(BaseModel):
     # ----------------------------
     # Core app
     # ----------------------------
-    app_name: str = "HS Emulator API"
+    app_name: str = "Novocode Runtime API"
     environment: str = os.getenv("ENV", "development")
     execution_mode: str = os.getenv("EXECUTION_MODE", "local")
 
