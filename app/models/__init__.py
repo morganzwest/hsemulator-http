@@ -4,3 +4,8 @@ from .cicd import CicdPromoteRequest, CicdPromoteResponse, WorkflowStatusRespons
 from .workflows import WorkflowDiscoveryRequest, WorkflowDiscoveryResponse
 from .secrets import CreateSecretRequest, CreateSecretResponse, UpdateSecretRequest, UpdateSecretResponse, DeleteSecretRequest, DeleteSecretResponse
 from .errors import SecretPersistenceError, SecretPortalMismatchError, SecretForbiddenError, SecretNotFoundError
+from .source_code_conversion import (
+    SourceCodeConversionRequest,
+    SourceCodeConversionResponse,
+    SourceCodeConversionErrorResponse
+)

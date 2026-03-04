@@ -90,6 +90,17 @@ from app.models.errors import (
     CicdTokenInvalidError,
     CicdTokenMissingScopesError,
 )
+from app.models.source_code_conversion import (
+    SourceCodeConversionRequest,
+    SourceCodeConversionResponse,
+    SourceCodeConversionErrorResponse
+)
+from app.services.source_code_conversion_service import (
+    SourceCodeConversionService,
+    MainNotFoundError,
+    InvalidSourceError,
+    SourceCodeConversionError
+)
 from os import getenv
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -678,6 +689,51 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
 
     except Exception as e:
         logger.exception("Unexpected error in workflow discovery")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/convert-source-code", response_model=SourceCodeConversionResponse)
+async def convert_source_code(req: SourceCodeConversionRequest):
+    """
+    Convert Python source code to include telemetry tracking.
+    
+    This endpoint wraps user Python code with telemetry helper functions
+    and decorates the main(event) entrypoint with @telemetry_track().
+    
+    Args:
+        req: Conversion request containing source code and optional telemetry parameters
+        
+    Returns:
+        SourceCodeConversionResponse: Converted source code with telemetry
+        
+    Raises:
+        HTTPException: For various conversion errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        converted_code, warnings = service.convert_source_code(
+            source_code=req.source_code,
+            action_id=req.action_id,
+            workflow_id=req.workflow_id,
+            secret=req.secret
+        )
+        
+        return SourceCodeConversionResponse(
+            converted_source_code=converted_code,
+            warnings=warnings
+        )
+        
+    except MainNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except SourceCodeConversionError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in source code conversion")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
