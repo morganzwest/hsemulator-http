@@ -33,6 +33,12 @@ class SourceCodeConversionRequest(BaseModel):
         description="Secret for telemetry tracking (uses template default if not provided)",
         examples=["your-secret-key"],
     )
+    
+    skip_lint: bool = Field(
+        False,
+        description="Skip linting validation (default: False)",
+        examples=[False],
+    )
 
 
 class SourceCodeConversionResponse(BaseModel):
@@ -57,7 +63,7 @@ class SourceCodeConversionErrorResponse(BaseModel):
     error_code: str = Field(
         ...,
         description="Machine-readable error code",
-        examples=["MAIN_NOT_FOUND", "INVALID_SOURCE", "CONVERSION_FAILED"],
+        examples=["MAIN_NOT_FOUND", "INVALID_SOURCE", "CONVERSION_FAILED", "LINT_FAILED"],
     )
     
     message: str = Field(
@@ -68,4 +74,52 @@ class SourceCodeConversionErrorResponse(BaseModel):
     details: Optional[dict] = Field(
         None,
         description="Additional error details",
+    )
+
+
+class PythonLintRequest(BaseModel):
+    """
+    Request to lint Python source code.
+    """
+    source_code: str = Field(
+        ...,
+        min_length=1,
+        description="Python source code to lint",
+        examples=["def main(event):\n    return {'message': 'Hello World'}"],
+    )
+
+
+class PythonLintResponse(BaseModel):
+    """
+    Response containing Python linting results.
+    """
+    passed: bool = Field(
+        ...,
+        description="Whether the code passed linting",
+    )
+    
+    errors: List[str] = Field(
+        default_factory=list,
+        description="List of linting error messages",
+    )
+    
+    warnings: List[str] = Field(
+        default_factory=list,
+        description="List of linting warnings (if any)",
+    )
+
+
+class PythonLintErrorResponse(BaseModel):
+    """
+    Error response for Python linting failures.
+    """
+    error_code: str = Field(
+        ...,
+        description="Machine-readable error code",
+        examples=["LINT_ERROR", "INVALID_SOURCE"],
+    )
+    
+    message: str = Field(
+        ...,
+        description="Human-readable error message",
     )

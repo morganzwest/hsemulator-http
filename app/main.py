@@ -93,13 +93,17 @@ from app.models.errors import (
 from app.models.source_code_conversion import (
     SourceCodeConversionRequest,
     SourceCodeConversionResponse,
-    SourceCodeConversionErrorResponse
+    SourceCodeConversionErrorResponse,
+    PythonLintRequest,
+    PythonLintResponse,
+    PythonLintErrorResponse
 )
 from app.services.source_code_conversion_service import (
     SourceCodeConversionService,
     MainNotFoundError,
     InvalidSourceError,
-    SourceCodeConversionError
+    SourceCodeConversionError,
+    LintError
 )
 from os import getenv
 import sentry_sdk
@@ -715,7 +719,8 @@ async def convert_source_code(req: SourceCodeConversionRequest):
             source_code=req.source_code,
             action_id=req.action_id,
             workflow_id=req.workflow_id,
-            secret=req.secret
+            secret=req.secret,
+            skip_lint=req.skip_lint
         )
         
         return SourceCodeConversionResponse(
@@ -729,11 +734,52 @@ async def convert_source_code(req: SourceCodeConversionRequest):
     except InvalidSourceError as e:
         raise HTTPException(status_code=400, detail=str(e))
         
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
     except SourceCodeConversionError as e:
         raise HTTPException(status_code=500, detail=str(e))
         
     except Exception as e:
         logger.exception("Unexpected error in source code conversion")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/lint/python", response_model=PythonLintResponse)
+async def lint_python_code(req: PythonLintRequest):
+    """
+    Lint Python source code using ruff.
+    
+    This endpoint provides standalone Python code linting functionality
+    without any code modification or telemetry injection.
+    
+    Args:
+        req: Linting request containing Python source code
+        
+    Returns:
+        PythonLintResponse: Linting results with pass/fail status and error messages
+        
+    Raises:
+        HTTPException: For various linting errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        passed, errors, warnings = service.lint_python_code(req.source_code)
+        
+        return PythonLintResponse(
+            passed=passed,
+            errors=errors,
+            warnings=warnings
+        )
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in Python linting")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

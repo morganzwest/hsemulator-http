@@ -1,5 +1,6 @@
 import logging
 import re
+import subprocess
 from typing import Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,11 @@ class InvalidSourceError(SourceCodeConversionError):
     pass
 
 
+class LintError(SourceCodeConversionError):
+    """Raised when converted source code fails linting"""
+    pass
+
+
 class SourceCodeConversionService:
     """
     Service for converting Python source code to include telemetry tracking.
@@ -32,6 +38,7 @@ class SourceCodeConversionService:
     DEFAULT_TELEMETRY_TEMPLATE = '''import json
 import time
 import traceback
+import logging
 from typing import Dict, Any, Callable
 from functools import wraps
 
@@ -98,8 +105,10 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
     try:
         # Implement your telemetry sending logic here
         # For now, just log the data
+        logger = logging.getLogger(__name__)
         logger.info(f"Telemetry: {{json.dumps(data)}}")
     except Exception as e:
+        logger = logging.getLogger(__name__)
         logger.error(f"Failed to send telemetry: {{e}}")
 
 # USER CODE BELOW
@@ -113,7 +122,8 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
         source_code: str,
         action_id: Optional[str] = None,
         workflow_id: Optional[int] = None,
-        secret: Optional[str] = None
+        secret: Optional[str] = None,
+        skip_lint: bool = False
     ) -> Tuple[str, List[str]]:
         """
         Convert Python source code to include telemetry tracking.
@@ -123,6 +133,7 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
             action_id: Optional action ID for telemetry
             workflow_id: Optional workflow ID for telemetry  
             secret: Optional secret for telemetry
+            skip_lint: Skip linting validation (default: False)
             
         Returns:
             Tuple of (converted_source_code, warnings)
@@ -130,6 +141,7 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
         Raises:
             InvalidSourceError: If source code is invalid
             MainNotFoundError: If no main(event) function found
+            LintError: If converted code fails linting validation
         """
         self.warnings = []
         
@@ -161,6 +173,12 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
             main_match,
             telemetry_already_present
         )
+        
+        # Run lint check if not skipped
+        if not skip_lint:
+            lint_passed, lint_errors = self._lint_source_code(converted_code)
+            if not lint_passed:
+                raise LintError(f"Converted code failed linting: {'; '.join(lint_errors)}")
         
         return converted_code, self.warnings
     
@@ -258,3 +276,72 @@ def _send_telemetry(data: Dict[str, Any]) -> None:
             self.warnings.append("Added telemetry decorator to existing main function")
         
         return '\n'.join(lines)
+    
+    def _lint_source_code(self, source_code: str) -> Tuple[bool, List[str]]:
+        """
+        Run linting on Python source code using ruff.
+        
+        Args:
+            source_code: Python source code to lint
+            
+        Returns:
+            Tuple of (passed, error_messages)
+        """
+        try:
+            # Run ruff check on the source code
+            result = subprocess.run(
+                ['ruff', 'check', '--output-format', 'json', '-'],
+                input=source_code,
+                text=True,
+                capture_output=True,
+                timeout=30  # 30 second timeout
+            )
+            
+            if result.returncode == 0:
+                return True, []
+            else:
+                # Parse ruff JSON output for error messages
+                import json
+                try:
+                    ruff_output = json.loads(result.stdout)
+                    error_messages = [
+                        f"Line {error.get('location', {}).get('row', '?')}: {error.get('message', 'Unknown error')}"
+                        for error in ruff_output
+                    ]
+                    return False, error_messages
+                except json.JSONDecodeError:
+                    # Fallback to stderr if JSON parsing fails
+                    return False, [result.stderr.strip() or "Linting failed with unknown error"]
+                    
+        except subprocess.TimeoutExpired:
+            logger.error("Linting timed out")
+            return False, ["Linting timed out after 30 seconds"]
+        except FileNotFoundError:
+            logger.warning("Ruff not found, skipping linting")
+            return True, []  # Pass if ruff is not available
+        except Exception as e:
+            logger.error(f"Linting error: {e}")
+            return False, [f"Linting error: {str(e)}"]
+    
+    def lint_python_code(self, source_code: str) -> Tuple[bool, List[str], List[str]]:
+        """
+        Standalone Python code linting service.
+        
+        Args:
+            source_code: Python source code to lint
+            
+        Returns:
+            Tuple of (passed, errors, warnings)
+        """
+        # Validate input
+        if not source_code or not source_code.strip():
+            raise InvalidSourceError("Source code cannot be empty")
+        
+        # Run linting
+        passed, errors = self._lint_source_code(source_code)
+        
+        # For now, we don't distinguish between errors and warnings in ruff output
+        # All linting issues are treated as errors for simplicity
+        warnings = []
+        
+        return passed, errors, warnings
