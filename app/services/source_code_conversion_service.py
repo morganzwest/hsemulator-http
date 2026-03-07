@@ -46,7 +46,7 @@ import hashlib
 import requests
 
 SECRET = b"{secret}"
-URL = "https://hsemulator-telemetry-712737660959.europe-west1.run.app/v1/ingest"
+URL = "https://telemetry.novocode.novocy.com/v1/ingest"
 
 VALID_TYPES = {{
     "ExecutionStarted",
