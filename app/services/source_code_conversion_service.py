@@ -35,81 +35,137 @@ class SourceCodeConversionService:
     """
     
     # Default telemetry template
-    DEFAULT_TELEMETRY_TEMPLATE = '''import json
+    DEFAULT_TELEMETRY_TEMPLATE = '''import sys
+import io
 import time
+import json
 import traceback
-import logging
-from typing import Dict, Any, Callable
-from functools import wraps
+import uuid
+import hmac
+import hashlib
+import requests
 
-SECRET = "{secret}"
+SECRET = b"{secret}"
+URL = "https://hsemulator-telemetry-712737660959.europe-west1.run.app/v1/ingest"
 
-def telemetry_track(action_id: str = "{action_id}", workflow_id: int = {workflow_id}):
-    """
-    Decorator to add telemetry tracking to HubSpot workflow actions.
-    
-    Args:
-        action_id: HubSpot action ID for tracking
-        workflow_id: HubSpot workflow ID for tracking
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(event: Dict[str, Any]) -> Dict[str, Any]:
-            start_time = time.time()
-            
-            telemetry_data = {{
-                "action_id": action_id,
-                "workflow_id": workflow_id,
-                "start_time": start_time,
-                "secret": SECRET
-            }}
-            
+VALID_TYPES = {{
+    "ExecutionStarted",
+    "ExecutionCompleted", 
+    "ExecutionFailed",
+    "Stdout",
+    "Return",
+}}
+
+class _TelemetryBuffer(io.StringIO):
+    def __init__(self):
+        super().__init__()
+        self._chunks = []
+
+    def write(self, s):
+        self._chunks.append(s)
+        return super().write(s)
+
+    def dump(self):
+        return "".join(self._chunks)
+
+
+def _build_signature(portal_id: int, action_id: str, workflow_id: int, timestamp: int) -> str:
+    canonical = f"{{portal_id}}.{{action_id}}.{{workflow_id}}.{{timestamp}}"
+    return hmac.new(SECRET, canonical.encode(), hashlib.sha256).hexdigest()
+
+
+def _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, t_type, message=None):
+    if t_type not in VALID_TYPES:
+        return
+
+    timestamp = int(time.time() * 1000)  # Millisecond precision
+
+    payload = {{
+        "portal_id": portal_id,
+        "action_id": action_id,
+        "workflow_id": workflow_id,
+        "execution_uuid": execution_uuid,
+        "timestamp": timestamp,
+        "type": t_type,
+        "message": message,
+        "environment": "production",
+    }}
+
+    body = json.dumps(payload, separators=(",", ":"))
+
+    signature = _build_signature(
+        portal_id,
+        action_id,
+        workflow_id,
+        timestamp,
+    )
+
+    headers = {{
+        "Content-Type": "application/json",
+        "X-Signature": signature,
+        "X-Timestamp": str(timestamp),
+    }}
+
+    try:
+        # Fire-and-forget: minimal timeout to avoid blocking
+        requests.post(URL, data=body, headers=headers, timeout=0.1, stream=True)
+    except Exception:
+        pass  # Silently ignore - telemetry shouldn't break user code
+
+
+def telemetry_track(action_id: str, workflow_id: int):
+    """Decorator to add telemetry tracking to any function"""
+    def decorator(fn):
+        def wrapper(event):
+            portal_id = event.get("origin", {{}}).get("portalId", 12345678)
+            execution_uuid = str(uuid.uuid4())
+
+            _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "ExecutionStarted", json.dumps(event))
+
+            stdout_buf = _TelemetryBuffer()
+            stderr_buf = _TelemetryBuffer()
+
+            old_out, old_err = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = stdout_buf, stderr_buf
+
+            result = None
+            error = None
+            exc = None
+
             try:
-                result = func(event)
-                telemetry_data.update({{
-                    "status": "success",
-                    "end_time": time.time(),
-                    "duration": time.time() - start_time,
-                    "result": result
-                }})
-                
-                # Send telemetry data (implement your telemetry endpoint)
-                _send_telemetry(telemetry_data)
-                
-                return result
-                
+                result = fn(event)
+                success = True
             except Exception as e:
-                telemetry_data.update({{
-                    "status": "error",
-                    "end_time": time.time(),
-                    "duration": time.time() - start_time,
-                    "error": str(e),
-                    "traceback": traceback.format_exc()
-                }})
-                
-                # Send telemetry data for errors
-                _send_telemetry(telemetry_data)
-                
-                raise
-                
+                success = False
+                exc = e
+                error = {{
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "traceback": traceback.format_exc(),
+                }}
+            finally:
+                sys.stdout, sys.stderr = old_out, old_err
+
+            stdout_value = stdout_buf.dump()
+            stderr_value = stderr_buf.dump()
+
+            if stdout_value:
+                _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "Stdout", stdout_value)
+
+            if stderr_value:
+                _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "Stdout", stderr_value)
+
+            if success:
+                _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "Return", str(result))
+                _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "ExecutionCompleted")
+                return result
+
+            _send_telemetry(portal_id, action_id, workflow_id, execution_uuid, "ExecutionFailed", json.dumps(error))
+
+            raise exc
+        
         return wrapper
     return decorator
-
-def _send_telemetry(data: Dict[str, Any]) -> None:
-    """
-    Send telemetry data to monitoring service.
-    
-    Args:
-        data: Telemetry data to send
-    """
-    try:
-        # Implement your telemetry sending logic here
-        # For now, just log the data
-        logger = logging.getLogger(__name__)
-        logger.info(f"Telemetry: {{json.dumps(data)}}")
-    except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to send telemetry: {{e}}")
 
 # USER CODE BELOW
 '''

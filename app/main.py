@@ -528,7 +528,7 @@ async def promote_workflow_action(
     Args:
         workflow_id: HubSpot workflow ID from URL path
         action_id: HubSpot action ID from URL path  
-        req: Request containing source code and CICD secret ID
+        req: Request containing source code, CICD secret ID, and telemetry option
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
     """
@@ -540,6 +540,7 @@ async def promote_workflow_action(
             action_id=action_id,
             force=force,
             dry_run=dry_run,
+            telemetry=req.telemetry,
         )
 
         return CicdPromoteResponse(

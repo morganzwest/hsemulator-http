@@ -61,6 +61,30 @@ async def get_workflow(token: str, workflow_id: str) -> Dict[str, Any]:
             raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
 
 
+async def get_portal_info(token: str) -> Dict[str, Any]:
+    """Fetch portal/account information from HubSpot API"""
+    url = f"{HUBSPOT_BASE_URL}/account-info/v3/details"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url, headers=headers)
+
+        if not response.is_success:
+            raise HubSpotAPIError(
+                f"HubSpot GET portal info failed: {response.status_code} {response.text}",
+                response.status_code
+            )
+
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            raise HubSpotAPIError(f"Invalid JSON response from HubSpot: {e}")
+
+
 async def get_workflows_list(token: str, limit: int = 100, after: Optional[str] = None) -> Dict[str, Any]:
     """Fetch a list of workflows from HubSpot API with pagination support"""
     url = f"{HUBSPOT_BASE_URL}/automation/v4/flows"

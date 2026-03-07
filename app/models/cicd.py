@@ -59,6 +59,12 @@ class CicdPromoteByUrlRequest(BaseModel):
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
     )
 
+    telemetry: bool = Field(
+        False,
+        description="Whether to convert source code to include telemetry tracking",
+        examples=[True, False],
+    )
+
 
 class CicdPromoteResponse(BaseModel):
     """
