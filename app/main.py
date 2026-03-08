@@ -90,6 +90,24 @@ from app.models.errors import (
     CicdTokenInvalidError,
     CicdTokenMissingScopesError,
 )
+from app.models.source_code_conversion import (
+    SourceCodeConversionRequest,
+    SourceCodeConversionResponse,
+    SourceCodeConversionErrorResponse,
+    PythonLintRequest,
+    PythonLintResponse,
+    PythonLintErrorResponse,
+    JavaScriptLintRequest,
+    JavaScriptLintResponse,
+    JavaScriptLintErrorResponse
+)
+from app.services.source_code_conversion_service import (
+    SourceCodeConversionService,
+    MainNotFoundError,
+    InvalidSourceError,
+    SourceCodeConversionError,
+    LintError
+)
 from os import getenv
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -438,7 +456,7 @@ def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     response_model=CicdPromoteResponse,
     dependencies=[Depends(require_runtime_token)],
 )
-async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False):
+async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False, telemetry: bool = False):
     """
     [DEPRECATED] Promote source code to a HubSpot workflow action.
 
@@ -451,6 +469,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
         req: Promotion request with source code, secret ID, workflow ID, and action ID
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
+        telemetry: Whether to apply telemetry conversion (default: False)
     """
     try:
         result = await promote_to_hubspot(
@@ -460,6 +479,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             action_id=req.action_id,
             force=force,
             dry_run=dry_run,
+            telemetry=telemetry,  # Use the telemetry parameter
         )
 
         return CicdPromoteResponse(
@@ -513,7 +533,7 @@ async def promote_workflow_action(
     Args:
         workflow_id: HubSpot workflow ID from URL path
         action_id: HubSpot action ID from URL path  
-        req: Request containing source code and CICD secret ID
+        req: Request containing source code, CICD secret ID, and telemetry option
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
     """
@@ -525,6 +545,7 @@ async def promote_workflow_action(
             action_id=action_id,
             force=force,
             dry_run=dry_run,
+            telemetry=req.telemetry,
         )
 
         return CicdPromoteResponse(
@@ -678,6 +699,132 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
 
     except Exception as e:
         logger.exception("Unexpected error in workflow discovery")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/convert-source-code", response_model=SourceCodeConversionResponse)
+async def convert_source_code(req: SourceCodeConversionRequest):
+    """
+    Convert Python or JavaScript source code to include telemetry tracking.
+    
+    This endpoint wraps user code with telemetry helper functions
+    and decorates the main(event) entrypoint with appropriate telemetry tracking.
+    Supports both Python (@telemetry_track decorator) and JavaScript (@telemetryTrack decorator or function wrapping).
+    
+    Args:
+        req: Conversion request containing source code and optional telemetry parameters
+        
+    Returns:
+        SourceCodeConversionResponse: Converted source code with telemetry
+        
+    Raises:
+        HTTPException: For various conversion errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        converted_code, warnings = service.convert_source_code(
+            source_code=req.source_code,
+            action_id=req.action_id,
+            workflow_id=req.workflow_id,
+            secret=req.secret,
+            skip_lint=req.skip_lint
+        )
+        
+        return SourceCodeConversionResponse(
+            converted_source_code=converted_code,
+            warnings=warnings
+        )
+        
+    except MainNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
+    except SourceCodeConversionError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in source code conversion")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/lint/python", response_model=PythonLintResponse)
+async def lint_python_code(req: PythonLintRequest):
+    """
+    Lint Python source code using ruff.
+    
+    This endpoint provides standalone Python code linting functionality
+    without any code modification or telemetry injection.
+    
+    Args:
+        req: Linting request containing Python source code
+        
+    Returns:
+        PythonLintResponse: Linting results with pass/fail status and error messages
+        
+    Raises:
+        HTTPException: For various linting errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        passed, errors, warnings = service.lint_python_code(req.source_code)
+        
+        return PythonLintResponse(
+            passed=passed,
+            errors=errors,
+            warnings=warnings
+        )
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in Python linting")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/lint/javascript", response_model=JavaScriptLintResponse)
+async def lint_javascript_code(req: JavaScriptLintRequest):
+    """
+    Lint JavaScript source code using ESLint.
+    
+    This endpoint provides standalone JavaScript code linting functionality
+    without any code modification or telemetry injection.
+    
+    Args:
+        req: Linting request containing JavaScript source code
+        
+    Returns:
+        JavaScriptLintResponse: Linting results with pass/fail status and error messages
+        
+    Raises:
+        HTTPException: For various linting errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        passed, errors, warnings = service.lint_javascript_code(req.source_code)
+        
+        return JavaScriptLintResponse(
+            passed=passed,
+            errors=errors,
+            warnings=warnings
+        )
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in JavaScript linting")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

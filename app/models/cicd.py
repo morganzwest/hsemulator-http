@@ -50,13 +50,19 @@ class CicdPromoteByUrlRequest(BaseModel):
         ...,
         min_length=1,
         description="Source code to deploy to the HubSpot action",
-        examples=["def main():\n    print('Hello World')"],
+        examples=["def main(event):\n    print('Hello World')"],
     )
 
     cicd_secret_id: UUID = Field(
         ...,
         description="ID of the CICD-scoped secret containing the HubSpot token",
         examples=["82caec1c-5c66-4c40-9e6a-7ea7c4bac922"],
+    )
+
+    telemetry: bool = Field(
+        False,
+        description="Whether to convert source code to include telemetry tracking",
+        examples=[True, False],
     )
 
 

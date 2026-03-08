@@ -39,5 +39,6 @@ numpy
 scipy
 scikit-learn
 sentry-sdk[fastapi]
+ruff
 
 
