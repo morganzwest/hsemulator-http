@@ -475,6 +475,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             action_id=req.action_id,
             force=force,
             dry_run=dry_run,
+            telemetry=True,  # Always apply telemetry for CICD promotions
         )
 
         return CicdPromoteResponse(
@@ -700,10 +701,11 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
 @app.post("/convert-source-code", response_model=SourceCodeConversionResponse)
 async def convert_source_code(req: SourceCodeConversionRequest):
     """
-    Convert Python source code to include telemetry tracking.
+    Convert Python or JavaScript source code to include telemetry tracking.
     
-    This endpoint wraps user Python code with telemetry helper functions
-    and decorates the main(event) entrypoint with @telemetry_track().
+    This endpoint wraps user code with telemetry helper functions
+    and decorates the main(event) entrypoint with appropriate telemetry tracking.
+    Supports both Python (@telemetry_track decorator) and JavaScript (@telemetryTrack decorator or function wrapping).
     
     Args:
         req: Conversion request containing source code and optional telemetry parameters

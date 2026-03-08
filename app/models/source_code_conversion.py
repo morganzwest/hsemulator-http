@@ -4,16 +4,21 @@ from typing import Optional, List
 
 class SourceCodeConversionRequest(BaseModel):
     """
-    Request to convert Python source code to include telemetry tracking.
+    Request to convert Python or JavaScript source code to include telemetry tracking.
     
-    This endpoint wraps user Python code with telemetry helper functions
-    and decorates the main(event) entrypoint with @telemetry_track().
+    This endpoint wraps user code with telemetry helper functions
+    and decorates the main(event) entrypoint with appropriate telemetry tracking.
+    Supports both Python (@telemetry_track decorator) and JavaScript (@telemetryTrack decorator).
     """
     source_code: str = Field(
         ...,
         min_length=1,
-        description="Raw Python source code to be converted",
-        examples=["def main(event):\n    print('Hello World')"],
+        description="Raw Python or JavaScript source code to be converted",
+        examples=[
+            "def main(event):\n    print('Hello World')", 
+            "export async function main(event) {\n    console.log('Hello World');\n}",
+            "exports.main = async function(event) {\n    console.log('Hello World');\n}"
+        ],
     )
     
     action_id: Optional[str] = Field(
@@ -47,7 +52,7 @@ class SourceCodeConversionResponse(BaseModel):
     """
     converted_source_code: str = Field(
         ...,
-        description="Python source code with telemetry wrapper and decorator applied",
+        description="Python or JavaScript source code with telemetry wrapper and decorator applied",
     )
     
     warnings: List[str] = Field(
@@ -112,6 +117,57 @@ class PythonLintResponse(BaseModel):
 class PythonLintErrorResponse(BaseModel):
     """
     Error response for Python linting failures.
+    """
+    error_code: str = Field(
+        ...,
+        description="Machine-readable error code",
+        examples=["LINT_ERROR", "INVALID_SOURCE"],
+    )
+    
+    message: str = Field(
+        ...,
+        description="Human-readable error message",
+    )
+
+
+class JavaScriptLintRequest(BaseModel):
+    """
+    Request to lint JavaScript source code.
+    """
+    source_code: str = Field(
+        ...,
+        min_length=1,
+        description="JavaScript source code to lint",
+        examples=[
+            "export async function main(event) {\n    return { message: 'Hello World' };\n}",
+            "exports.main = async function(event) {\n    return { message: 'Hello World' };\n}"
+        ],
+    )
+
+
+class JavaScriptLintResponse(BaseModel):
+    """
+    Response containing JavaScript linting results.
+    """
+    passed: bool = Field(
+        ...,
+        description="Whether the code passed linting",
+    )
+    
+    errors: List[str] = Field(
+        default_factory=list,
+        description="List of linting error messages",
+    )
+    
+    warnings: List[str] = Field(
+        default_factory=list,
+        description="List of linting warnings (if any)",
+    )
+
+
+class JavaScriptLintErrorResponse(BaseModel):
+    """
+    Error response for JavaScript linting failures.
     """
     error_code: str = Field(
         ...,
