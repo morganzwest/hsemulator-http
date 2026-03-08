@@ -47,11 +47,15 @@ router = APIRouter(
 
 @router.post(
     "/promote",
+    include_in_schema=False,
     response_model=CicdPromoteResponse,
     dependencies=[Depends(require_runtime_token)],
     summary="Promote Source Code (Deprecated)",
     description="""
-    ⚠️ **DEPRECATED** - Use `/cicd/workflow/{workflow_id}/action/{action_id}/promote` instead.
+    ⚠️ **DEPRECATED & HIDDEN** - Use `/cicd/workflow/{workflow_id}/action/{action_id}/promote` instead.
+    
+    NOTE: This endpoint is hidden from OpenAPI documentation (include_in_schema=False) 
+    but remains functional for backward compatibility.
     
     Promote source code to a HubSpot workflow action for CI/CD integration.
     

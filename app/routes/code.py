@@ -41,13 +41,13 @@ router = APIRouter(
 
 
 @router.post(
-    "/convert-source-code", 
+    "/code/convert", 
     response_model=SourceCodeConversionResponse,
     summary="Convert Source Code",
     description="""
     Convert Python or JavaScript source code to include telemetry tracking.
     
-    This endpoint wraps user code with telemetry helper functions
+    This endpoint is now available at `POST /code/convert` and wraps user code with telemetry helper functions
     and decorates the main(event) entrypoint with appropriate telemetry tracking.
     Supports both Python and JavaScript with language-specific optimizations.
     
@@ -174,13 +174,13 @@ async def convert_source_code(req: SourceCodeConversionRequest):
 
 
 @router.post(
-    "/lint/python", 
+    "/code/lint/python", 
     response_model=PythonLintResponse,
     summary="Lint Python Code",
     description="""
     Lint Python source code using ruff for code quality validation.
     
-    This endpoint provides standalone Python code linting functionality
+    This endpoint is now available at `POST /code/lint/python` and provides standalone Python code linting functionality
     without any code modification or telemetry injection. Uses ruff
     for fast, accurate Python code analysis.
     
@@ -291,13 +291,13 @@ async def lint_python_code(req: PythonLintRequest):
 
 
 @router.post(
-    "/lint/javascript", 
+    "/code/lint/javascript", 
     response_model=JavaScriptLintResponse,
     summary="Lint JavaScript Code",
     description="""
     Lint JavaScript source code using ESLint for comprehensive code analysis.
     
-    This endpoint provides standalone JavaScript code linting functionality
+    This endpoint is now available at `POST /code/lint/javascript` and provides standalone JavaScript code linting functionality
     without any code modification or telemetry injection. Uses ESLint
     with modern JavaScript and TypeScript support.
     

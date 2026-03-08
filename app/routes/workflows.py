@@ -6,7 +6,7 @@ This blueprint handles workflow discovery and management operations.
 
 import logging
 from typing import Optional
-
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.auth import require_runtime_token
@@ -34,15 +34,15 @@ router = APIRouter(
 )
 
 
-@router.post(
-    "/discover",
+@router.get(
+    "/workflows",
     response_model=WorkflowDiscoveryResponse,
     dependencies=[Depends(require_runtime_token)],
     summary="Discover Workflows",
     description="""
     Discover HubSpot workflows with custom code actions for CI/CD onboarding.
     
-    This endpoint scans all workflows in a portal to find custom code actions
+    This endpoint is now available at `GET /workflows` and scans all workflows in a portal to find custom code actions
     that can be managed by the CICD system. It handles pagination automatically
     and can optionally process and store actions in the database.
     
@@ -73,11 +73,11 @@ router = APIRouter(
     - Security assessment of custom actions
     
     **Parameters:**
-    - **secret_id**: Secret for HubSpot API authentication
-    - **portal_id**: HubSpot portal identifier
-    - **owner_id**: Portal owner for authorization
-    - **portal_id_int**: Numeric portal ID
-    - **process_actions**: Store results in database
+    - **secret_id**: Secret for HubSpot API authentication (query parameter)
+    - **portal_id**: HubSpot portal identifier (query parameter)
+    - **owner_id**: Portal owner for authorization (query parameter)
+    - **portal_id_int**: Numeric portal ID (query parameter)
+    - **process_actions**: Store discovered actions in database (query parameter)
     
     **Flow:**
     1. Validate secret and portal access
@@ -141,7 +141,13 @@ router = APIRouter(
         500: {"description": "HubSpot API error or discovery processing failed"}
     }
 )
-async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
+async def discover_workflows_endpoint(
+    secret_id: UUID,
+    portal_id: str,
+    owner_id: str,
+    portal_id_int: int,
+    process_actions: bool = False
+):
     """
     Discover HubSpot workflows with custom code actions in a portal.
 
@@ -150,15 +156,19 @@ async def discover_workflows_endpoint(req: WorkflowDiscoveryRequest):
     and can optionally process and store actions in the database.
 
     Args:
-        req: Discovery request containing all required parameters
+        secret_id: UUID of the secret for HubSpot API authentication
+        portal_id: HubSpot portal identifier
+        owner_id: Portal owner for authorization
+        portal_id_int: Numeric portal ID
+        process_actions: Whether to process and store discovered actions
     """
     try:
         result = await discover_workflows(
-            secret_id=req.secret_id,
-            portal_id=req.portal_id,
-            owner_id=req.owner_id,
-            portal_id_int=req.portal_id_int,
-            process_actions=req.process_actions,
+            secret_id=secret_id,
+            portal_id=portal_id,
+            owner_id=owner_id,
+            portal_id_int=portal_id_int,
+            process_actions=process_actions,
         )
 
         return result
