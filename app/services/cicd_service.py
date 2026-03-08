@@ -1,6 +1,7 @@
 import logging
+import urllib.parse
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Optional, Tuple
 
 from app.services.secret_decrypt_service import decrypt_secret_for_test
 from app.services.source_code_conversion_service import (
@@ -362,6 +363,58 @@ async def promote_to_hubspot(
     }
 
 
+async def apply_telemetry_conversion_if_needed(
+    source_code: str,
+    action_id: str,
+    workflow_id: str,
+) -> Tuple[str, Optional[str]]:
+    """
+    Apply telemetry conversion to source code if needed.
+    
+    This helper function applies the same telemetry conversion logic used during promotion
+    to ensure consistent hash generation during status checking.
+    
+    Args:
+        source_code: Raw source code to potentially convert
+        action_id: Action ID for telemetry tracking
+        workflow_id: Workflow ID for telemetry tracking
+        
+    Returns:
+        Tuple of (final_source_code, telemetry_secret)
+        telemetry_secret is None if conversion fails or is not applied
+    """
+    try:
+        conversion_service = SourceCodeConversionService()
+        
+        # Generate a telemetry secret for this action
+        telemetry_secret = generate_telemetry_secret()
+        
+        # Convert source code with telemetry
+        converted_code, warnings = conversion_service.convert_source_code(
+            source_code=source_code,
+            action_id=action_id,
+            workflow_id=workflow_id,
+            secret=telemetry_secret,
+            skip_lint=False  # Always lint for telemetry code
+        )
+        
+        logger.info(f"Applied telemetry conversion for status check with {len(warnings)} warnings")
+        return converted_code, telemetry_secret
+        
+    except (SourceCodeConversionError, MainNotFoundError, InvalidSourceError, LintError) as e:
+        logger.warning(
+            f"Telemetry conversion failed for status check on action {action_id}, using original source code: {e}"
+        )
+        # Fall back to original source code if conversion fails
+        return source_code, None
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error during telemetry conversion for status check on action {action_id}, using original source code"
+        )
+        # Fall back to original source code if conversion fails
+        return source_code, None
+
+
 async def check_workflow_status(
     cicd_secret_id: UUID,
     workflow_id: str,
@@ -380,8 +433,26 @@ async def check_workflow_status(
     Returns:
         WorkflowStatusResponse with detailed status information
     """
-    # Generate hash for provided source code (if any) - do this once
-    source_hash = generate_source_hash(source_code) if source_code else None
+    # Apply telemetry conversion to source code if provided
+    final_source_code = source_code
+    telemetry_secret = None
+    
+    if source_code:
+        # URL decode the source code to handle %5Cn -> \n and other encodings
+        decoded_source_code = urllib.parse.unquote(source_code)
+        logger.debug(f"Original source code: {repr(source_code)}")
+        logger.debug(f"URL decoded source code: {repr(decoded_source_code)}")
+        
+        # Convert escaped newlines (\\n) to actual newlines (\n)
+        processed_source_code = decoded_source_code.replace('\\n', '\n')
+        logger.debug(f"Final processed source code: {repr(processed_source_code)}")
+        
+        final_source_code, telemetry_secret = await apply_telemetry_conversion_if_needed(
+            processed_source_code, action_id, workflow_id
+        )
+    
+    # Generate hash for final source code (after potential telemetry conversion)
+    source_hash = generate_source_hash(final_source_code) if final_source_code else None
 
     # Try to decrypt the CICD secret
     try:
