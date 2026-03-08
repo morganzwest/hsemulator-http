@@ -50,7 +50,7 @@ class CicdPromoteByUrlRequest(BaseModel):
         ...,
         min_length=1,
         description="Source code to deploy to the HubSpot action",
-        examples=["def main():\n    print('Hello World')"],
+        examples=["def main(event):\n    print('Hello World')"],
     )
 
     cicd_secret_id: UUID = Field(
