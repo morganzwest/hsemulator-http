@@ -96,7 +96,10 @@ from app.models.source_code_conversion import (
     SourceCodeConversionErrorResponse,
     PythonLintRequest,
     PythonLintResponse,
-    PythonLintErrorResponse
+    PythonLintErrorResponse,
+    JavaScriptLintRequest,
+    JavaScriptLintResponse,
+    JavaScriptLintErrorResponse
 )
 from app.services.source_code_conversion_service import (
     SourceCodeConversionService,
@@ -783,6 +786,44 @@ async def lint_python_code(req: PythonLintRequest):
         
     except Exception as e:
         logger.exception("Unexpected error in Python linting")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/lint/javascript", response_model=JavaScriptLintResponse)
+async def lint_javascript_code(req: JavaScriptLintRequest):
+    """
+    Lint JavaScript source code using ESLint.
+    
+    This endpoint provides standalone JavaScript code linting functionality
+    without any code modification or telemetry injection.
+    
+    Args:
+        req: Linting request containing JavaScript source code
+        
+    Returns:
+        JavaScriptLintResponse: Linting results with pass/fail status and error messages
+        
+    Raises:
+        HTTPException: For various linting errors with appropriate status codes
+    """
+    try:
+        service = SourceCodeConversionService()
+        passed, errors, warnings = service.lint_javascript_code(req.source_code)
+        
+        return JavaScriptLintResponse(
+            passed=passed,
+            errors=errors,
+            warnings=warnings
+        )
+        
+    except InvalidSourceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except LintError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+        
+    except Exception as e:
+        logger.exception("Unexpected error in JavaScript linting")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
