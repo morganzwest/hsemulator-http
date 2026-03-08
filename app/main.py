@@ -456,7 +456,7 @@ def update_secret_endpoint(secret_id: UUID, req: UpdateSecretRequest):
     response_model=CicdPromoteResponse,
     dependencies=[Depends(require_runtime_token)],
 )
-async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False):
+async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bool = False, telemetry: bool = False):
     """
     [DEPRECATED] Promote source code to a HubSpot workflow action.
 
@@ -469,6 +469,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
         req: Promotion request with source code, secret ID, workflow ID, and action ID
         force: Force update even if action has no hash marker (default: False)
         dry_run: Perform dry run without making changes (default: False)
+        telemetry: Whether to apply telemetry conversion (default: False)
     """
     try:
         result = await promote_to_hubspot(
@@ -478,7 +479,7 @@ async def cicd_promote(req: CicdPromoteRequest, force: bool = False, dry_run: bo
             action_id=req.action_id,
             force=force,
             dry_run=dry_run,
-            telemetry=True,  # Always apply telemetry for CICD promotions
+            telemetry=telemetry,  # Use the telemetry parameter
         )
 
         return CicdPromoteResponse(
