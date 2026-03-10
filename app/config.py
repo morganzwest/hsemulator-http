@@ -53,6 +53,24 @@ class Settings(BaseModel):
             return 0.1  # default fallback
 
     # ----------------------------
+    # Rate Limiting
+    # ----------------------------
+    rate_limit_max_rps: int = int(os.getenv("RATE_LIMIT_MAX_RPS", "1000"))
+    rate_limit_process_rps: int = int(os.getenv("RATE_LIMIT_PROCESS_RPS", "200"))
+    rate_limit_queue_size: int = int(os.getenv("RATE_LIMIT_QUEUE_SIZE", "500"))
+
+    @field_validator("rate_limit_max_rps", "rate_limit_process_rps", "rate_limit_queue_size", mode="before")
+    @classmethod
+    def validate_positive_int(cls, v):
+        try:
+            value = int(v)
+            if value <= 0:
+                raise ValueError("Value must be positive")
+            return value
+        except (ValueError, TypeError):
+            return 1000 if "max_rps" in str(v) else 200 if "process_rps" in str(v) else 500
+
+    # ----------------------------
     # CORS
     # ----------------------------
     # Comma-separated list in env:

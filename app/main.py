@@ -41,6 +41,7 @@ from sentry_sdk.integrations.logging import LoggingIntegration
 
 from app.config import settings
 from app.logger import ExecutionContextFilter, SentryContextFilter
+from app.middleware import RateLimitMiddleware
 from app.routes import register_blueprints
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,17 @@ app.add_middleware(
 )
 
 # ----------------------------
+# Rate Limiting Middleware
+# ----------------------------
+# Add rate limiting middleware after CORS
+app.add_middleware(
+    RateLimitMiddleware,
+    max_rps=settings.rate_limit_max_rps,
+    process_rps=settings.rate_limit_process_rps,
+    queue_size=settings.rate_limit_queue_size,
+)
+
+# ----------------------------
 # Global Exception Handler
 # ----------------------------
 
@@ -239,3 +251,21 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Register Route Blueprints
 # ----------------------------
 register_blueprints(app)
+
+
+# ----------------------------
+# Application Lifecycle Events
+# ----------------------------
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application components on startup."""
+    logger.info("Application starting up...")
+    logger.info(f"Rate limiting configured: {settings.rate_limit_max_rps} RPS max, {settings.rate_limit_process_rps} RPS processed")
+    logger.info("Application startup complete")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up application resources on shutdown."""
+    logger.info("Application shutting down...")
+    logger.info("Application shutdown complete")
